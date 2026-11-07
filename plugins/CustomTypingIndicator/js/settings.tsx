@@ -18,8 +18,6 @@ import type { ApiOptions } from './state'
 import type { PluginSettingsComponent } from '@valenced/plugins/types'
 import type { ComponentProps } from 'react'
 
-// ⚠️ ASSUMPTION: I'm guessing how your settings component receives the plugin api.
-// Match this to your Fake Nitro settings.tsx (props shape + UI kit) and I'll adapt it.
 export type TypingSettingsProps = ComponentProps<PluginSettingsComponent<ApiOptions>>
 
 const DEFAULT_MINE: TypingEntry = { emojis: [], animation: 'wave', text: 'is typing...' }
@@ -61,6 +59,7 @@ async function copy(text: string) {
 
 export function SettingsComponent(props: TypingSettingsProps) {
 	const api = (props as any).api ?? runtime.api
+	if (!api) return <Text style={{ color: 'white' }}>Custom Typing Indicator is still initializing. Reopen this page in a moment.</Text>
 	const storage = api.jsonStorage
 	const cfg: ApiOptions['jsonStorage'] = storage.cache
 	const [, force] = useState(0)
@@ -69,7 +68,7 @@ export function SettingsComponent(props: TypingSettingsProps) {
 		await storage.set({ ...storage.cache, ...patch })
 		force(n => n + 1)
 	}
-	const setMine = (mine: TypingEntry) => save({ mine: sanitize(mine) ?? { ...DEFAULT_MINE, text: '' } })
+	const setMine = (mine: TypingEntry) => save({ mine: sanitize(mine) ?? { ...DEFAULT_MINE, text: '' }, emojiPool: [...new Set(mine.emojis)].slice(0, MAX_EMOJIS) })
 
 	const nitro = hasRealNitroTyping()
 	const mine = cfg.mine
@@ -225,7 +224,7 @@ export function SettingsComponent(props: TypingSettingsProps) {
 				<Text style={{ color: 'white' }}>Copy my config (to share with plugin users)</Text>
 			</Pressable>
 			<Text style={{ color: '#b9bbbe', fontSize: 12 }}>
-				Other plugin users only see your indicator once your config is added to the registry.
+				Your own preview is local. Other plugin users see your indicator only when your exported config is added to the shared registry.
 			</Text>
 		</ScrollView>
 	)
