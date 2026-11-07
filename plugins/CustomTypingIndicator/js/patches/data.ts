@@ -16,7 +16,7 @@ export const MAX_TEXT = 32
 export const MAX_EMOJIS = 3
 
 // TODO: point this at your hosted registry.json (e.g. GitHub Pages in your plugin repo)
-export const REGISTRY_URL = 'https://choccychan.workers.dev'
+export const REGISTRY_URL = 'https://morning-hat-49ac.choccychan.workers.dev/'
 
 let registry = new Map<string, TypingEntry>()
 
