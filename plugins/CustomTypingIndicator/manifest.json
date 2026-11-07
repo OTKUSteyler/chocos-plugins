@@ -2,9 +2,9 @@
   "format": 1,
   "id": "com.otkusteyler.typing-indicator",
   "name": "Custom Typing Indicator",
-  "description": "Design your own typing indicator with emojis, animations and text. Shown to other plugin users, and never overrides Nitro's native setting.",
+  "description": "Design your own typing indicator with emojis, animations and text. Shown to other plugin users, and never overrides Nitro's native setting VERY W.I.P.",
   "author": "choccychan aka btmc727 <554071670143451176>",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "icon": "ChatIcon",
   "dependencies": {
     "valenced.api": {
