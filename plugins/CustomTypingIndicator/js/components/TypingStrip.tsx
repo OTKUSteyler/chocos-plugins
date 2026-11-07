@@ -18,10 +18,17 @@ function resolve(entry: TypingEntry): CustomAnim | null {
 	return PRESETS[entry.animation]
 }
 
-const EASINGS = {
-	smooth: Easing.inOut(Easing.quad),
-	linear: Easing.linear,
-	bounce: Easing.bounce,
+// NOTE for the Valenced build: it rewrites every identifier named like an import
+// (View, Image, ...) into `valenced.react.ReactNative.X`, so `<Animated.View>` becomes
+// `...Animated.valenced.react.ReactNative.View` and crashes. A top-level alias is the
+// supported workaround. Also keep react-native values out of top-level objects: they
+// would be evaluated at module load, so Easing is looked up lazily in a function.
+const AnimatedView = Animated.View
+
+function easingFor(name: CustomAnim['easing']) {
+	if (name === 'linear') return Easing.linear
+	if (name === 'bounce') return Easing.bounce
+	return Easing.inOut(Easing.quad)
 }
 
 function Emoji({ uri, index, anim }: { uri: string; index: number; anim: CustomAnim | null }) {
@@ -29,7 +36,7 @@ function Emoji({ uri, index, anim }: { uri: string; index: number; anim: CustomA
 
 	useEffect(() => {
 		if (!anim) return
-		const easing = EASINGS[anim.easing]
+		const easing = easingFor(anim.easing)
 		const loop = Animated.loop(
 			Animated.sequence([
 				Animated.delay(index * anim.stagger),
@@ -58,9 +65,9 @@ function Emoji({ uri, index, anim }: { uri: string; index: number; anim: CustomA
 		: {}
 
 	return (
-		<Animated.View style={style}>
+		<AnimatedView style={style}>
 			<Image source={{ uri }} style={{ width: SIZE, height: SIZE, marginRight: 3 }} />
-		</Animated.View>
+		</AnimatedView>
 	)
 }
 
