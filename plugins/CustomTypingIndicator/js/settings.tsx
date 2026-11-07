@@ -12,7 +12,7 @@ import {
 } from './data'
 import type { CustomAnim } from './data'
 import TypingStrip from './components/TypingStrip'
-import { hasRealNitroTyping, runtime } from './state'
+import { runtime } from './state'
 import type { TypingEntry } from './data'
 import type { ApiOptions } from './state'
 import type { PluginSettingsComponent } from '@valenced/plugins/types'
@@ -70,7 +70,6 @@ export function SettingsComponent(props: TypingSettingsProps) {
 	}
 	const setMine = (mine: TypingEntry) => save({ mine: sanitize(mine) ?? { ...DEFAULT_MINE, text: '' }, emojiPool: [...new Set(mine.emojis)].slice(0, MAX_EMOJIS) })
 
-	const nitro = hasRealNitroTyping()
 	const mine = cfg.mine
 
 	return (
@@ -80,12 +79,6 @@ export function SettingsComponent(props: TypingSettingsProps) {
 				<Switch value={cfg.enabled} onValueChange={enabled => save({ enabled })} />
 			</View>
 
-			{nitro && (
-				<Text style={{ color: '#b9bbbe' }}>
-					You have Nitro, so Discord's own typing indicator setting is used for you. This
-					plugin only shows other plugin users' indicators.
-				</Text>
-			)}
 
 			{/* Preview, same layout as the native screen */}
 			<View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
