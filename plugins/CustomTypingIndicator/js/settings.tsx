@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Image, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 import {
 	ANIMATIONS,
@@ -15,10 +14,9 @@ import TypingStrip from './components/TypingStrip'
 import { runtime } from './state'
 import type { TypingEntry } from './data'
 import type { ApiOptions } from './state'
-import type { PluginSettingsComponent } from '@valenced/plugins/types'
-import type { ComponentProps } from 'react'
+import type { PluginApi } from '@valenced/plugins/types'
 
-export type TypingSettingsProps = ComponentProps<PluginSettingsComponent<ApiOptions>>
+export type TypingSettingsProps = { api: PluginApi<ApiOptions> }
 
 const DEFAULT_MINE: TypingEntry = { emojis: [], animation: 'wave', text: 'is typing...' }
 
@@ -58,15 +56,14 @@ async function copy(text: string) {
 }
 
 export function SettingsComponent(props: TypingSettingsProps) {
-	const api = (props as any).api ?? runtime.api
-	if (!api) return <Text style={{ color: 'white' }}>Custom Typing Indicator is still initializing. Reopen this page in a moment.</Text>
+	const api = props.api
+	// Valenced settings screens must subscribe through JsonStorage.use();
+	// reading .cache alone does not make the screen reactive.
+	const cfg = api.jsonStorage.use() as ApiOptions['jsonStorage']
 	const storage = api.jsonStorage
-	const cfg: ApiOptions['jsonStorage'] = storage.cache
-	const [, force] = useState(0)
 
 	const save = async (patch: Partial<ApiOptions['jsonStorage']>) => {
-		await storage.set({ ...storage.cache, ...patch })
-		force(n => n + 1)
+		await storage.set({ ...cfg, ...patch })
 	}
 	const setMine = (mine: TypingEntry) => save({ mine: sanitize(mine) ?? { ...DEFAULT_MINE, text: '' }, emojiPool: [...new Set(mine.emojis)].slice(0, MAX_EMOJIS) })
 
