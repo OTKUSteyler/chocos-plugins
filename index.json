@@ -384,7 +384,7 @@
       "author": "choccychan aka btmc727 <554071670143451176>",
       "icon": "ChatIcon",
       "channels": {
-        "latest": "1.0.6"
+        "latest": "1.0.7"
       },
       "versions": {
         "1.0.0": {
@@ -470,6 +470,22 @@
         "1.0.6": {
           "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.typing-indicator@1.0.6.zip",
           "sha256": "80440be5ac6811e74a620df2c7a8b4030cb0e39b1bebe8e47176b6e415e740c9",
+          "size": 3712,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            },
+            "com.otkusteyler.lib": {
+              "version": ">=1 <2"
+            }
+          }
+        },
+        "1.0.7": {
+          "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.typing-indicator@1.0.7.zip",
+          "sha256": "33f0047e768aeb6656129076c391284fa06cd07a156db045204fa75e016edbc3",
           "size": 3712,
           "dependencies": {
             "valenced.api": {
