@@ -4,7 +4,7 @@
   "name": "Custom Typing Indicator",
   "description": "Design your own typing indicator with emojis, animations and text. Shown to other plugin users, and never overrides Nitro's native setting.",
   "author": "choccychan aka btmc727 <554071670143451176>",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "icon": "ChatIcon",
   "dependencies": {
     "valenced.api": {
