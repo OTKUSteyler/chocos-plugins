@@ -1,6 +1,8 @@
-import { clearData, fetchRegistry } from './data'
+import { getErrorStack } from '@valenced/utils/error'
+import displayPatches from './patches/display'
+import unlockPatches from './patches/unlock'
+import { clearRegistry, fetchRegistry } from './registry'
 import { SettingsComponent } from './settings'
-import renderPatches from './patches/render'
 import { runtime } from './state'
 import type { ApiOptions } from './state'
 import type { PluginApi } from '@valenced/plugins/types'
@@ -12,27 +14,35 @@ export default plugin<ApiOptions>({
 		load: true,
 		default: {
 			enabled: true,
-			mine: { emojis: [], animation: 'wave', text: 'is typing...' },
-			emojiPool: [],
+			unlockEditor: true,
+			mine: null,
 		},
 	},
 
 	async start(api: PluginApi<ApiOptions>) {
 		const { cleanup } = api
 		runtime.api = api
-		renderPatches(api)
 
-		// SettingsComponent is registered by Valenced's plugin system.
-		// Do not manually register a Discord settings route: that internal
-		// registration path is not a stable public API.
+		for (const apply of [unlockPatches, displayPatches]) {
+			try {
+				apply(api)
+			} catch (e) {
+				api.plugin.reportError(`Failed to apply ${apply.name}: ${getErrorStack(e)}`)
+			}
+		}
 
+		cleanup(() => {
+			clearRegistry()
+			runtime.api = null
+			runtime.canActuallyUse = null
+			runtime.getCurrentUserRaw = null
+			runtime.emitUserChange = null
+			for (const key of Object.keys(runtime.found) as (keyof typeof runtime.found)[]) {
+				runtime.found[key] = false
+			}
+		})
 
 		await fetchRegistry()
-		cleanup(() => {
-			clearData()
-			runtime.api = null
-			runtime.currentUserId = null
-		})
 	},
 
 	SettingsComponent,
