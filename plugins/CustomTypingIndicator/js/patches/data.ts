@@ -78,6 +78,7 @@ const SURPRISE_TEXTS = [
 	'is cooking...',
 	'is spiraling...',
 	'is gossiping...',
+	'is gonning...',
 ]
 
 export function surprise(emojiPool: string[]): TypingEntry {
