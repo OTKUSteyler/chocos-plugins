@@ -4,7 +4,7 @@ import type { TypingConfig, TypingEmoji } from './state'
 // Same hosting style as UserPFP: one JSON file in a GitHub repo, read through raw.githubusercontent.com.
 // To add or change an indicator, edit source/data.json in that repo (or open a pull request).
 export const REGISTRY_URL =
-	'https://raw.githubusercontent.com/OTKUSteyler/chocos-plugins/main/source/data.json'
+	'https://raw.githubusercontent.com/OTKUSteyler/chocos-plugins/refs/heads/main/plugins/CustomTypingIndicator/js/patches/data.json'
 
 // Entries are written by other people, so everything is validated before it reaches Discord's UI.
 const SNOWFLAKE = /^\d{15,22}$/
