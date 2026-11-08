@@ -89,9 +89,9 @@ export default function unlockPatches(api: TypingPluginApi) {
 			)
 		}),
 
-		// 4) The editor and the "preview own indicator" dev setting read the current user's
-		//    `typingIndicatorStyle`. When the account has no style of its own (and no Nitro),
-		//    the locally saved one is filled in so the editor shows what you saved.
+		// 4) The editor, and the "preview own indicator" mode, read the current user's
+		//    `typingIndicatorStyle` (through getCurrentUser or getUser). When the account has no
+		//    style of its own and no Nitro, the locally saved one is filled in.
 		getModules(withProps<any>('getCurrentUser', 'getUser', 'getUsers'), store => {
 			runtime.found.currentUser = true
 			runtime.getCurrentUserRaw = store.getCurrentUser.bind(store)
@@ -99,17 +99,26 @@ export default function unlockPatches(api: TypingPluginApi) {
 				typeof store.emitChange === 'function' ? () => store.emitChange() : null
 			resetNitroMemo()
 
+			const inject = (user: any) => {
+				const mine = settings()?.mine
+				if (user && mine && isEnabled() && user.typingIndicatorStyle == null && !hasRealNitro()) {
+					try {
+						user.typingIndicatorStyle = mine
+					} catch {
+						// A frozen record just means the editor starts empty.
+					}
+				}
+			}
+
 			cleanup(
 				instead(store, 'getCurrentUser', (args: any[], original: (...a: any[]) => any) => {
 					const user = Reflect.apply(original, store, args)
-					const mine = settings()?.mine
-					if (user && mine && isEnabled() && user.typingIndicatorStyle == null && !hasRealNitro()) {
-						try {
-							user.typingIndicatorStyle = mine
-						} catch {
-							// A frozen record just means the editor starts empty.
-						}
-					}
+					inject(user)
+					return user
+				}),
+				instead(store, 'getUser', (args: any[], original: (...a: any[]) => any) => {
+					const user = Reflect.apply(original, store, args)
+					if (user && user.id === runtime.getCurrentUserRaw?.()?.id) inject(user)
 					return user
 				}),
 			)

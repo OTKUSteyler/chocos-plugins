@@ -36,12 +36,14 @@ export interface TypingConfig {
 
 export interface ApiOptions {
 	jsonStorage: {
-		/** Master switch: registry display + local editor support. */
+		/** Master switch. */
 		enabled: boolean
 		/** Let people without Nitro open and use Discord's own editor screen. */
 		unlockEditor: boolean
 		/** The indicator saved locally from the editor (never sent to Discord). */
 		mine: TypingConfig | null
+		/** Show your own indicator in chat, using Discord's developer preview mode. */
+		previewOwn: boolean
 	}
 }
 
@@ -55,14 +57,25 @@ export const runtime = {
 	/** UserStore.getCurrentUser before patching, so checks never recurse into our own patch. */
 	getCurrentUserRaw: null as null | (() => any),
 	emitUserChange: null as null | (() => void),
+	emitDevChange: null as null | (() => void),
 	/** Which patches found their module (shown in the settings screen). */
 	found: {
 		experiment: false,
 		premium: false,
 		save: false,
 		currentUser: false,
-		typingStore: false,
+		devSettings: false,
 	},
+}
+
+function nameOf(table: Record<string, number>, value: number): string {
+	return Object.keys(table).find(key => table[key] === value) ?? 'UNSPECIFIED'
+}
+
+/** Human readable summary of a saved style, e.g. "3 emojis, VENTING, WAVE". */
+export function describeConfig(config: TypingConfig): string {
+	const emojis = config.emojis.length === 0 ? 'no emojis' : `${config.emojis.length} emojis`
+	return `${emojis}, ${nameOf(TypingSuggestion, config.typingSuggestion)}, ${nameOf(TypingAnimation, config.animation)}`
 }
 
 export function settings(): ApiOptions['jsonStorage'] | null {
