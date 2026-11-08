@@ -16,7 +16,7 @@ export const MAX_TEXT = 32
 export const MAX_EMOJIS = 3
 
 // TODO: point this at your hosted registry.json (e.g. GitHub Pages in your plugin repo)
-export const REGISTRY_URL = 'https://raw.githubusercontent.com/OTKUSteyler/chocos-plugins/refs/heads/main/plugins/CustomTypingIndicator/js/patches/data.ts'
+export const REGISTRY_URL = 'https://raw.githubusercontent.com/OTKUSteyler/chocos-plugins/refs/heads/main/plugins/CustomTypingIndicator/js/patches/data.json'
 
 let registry = new Map<string, TypingEntry>()
 
