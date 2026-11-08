@@ -1,1 +1,10 @@
-a
+{
+  "version": 1,
+  "users": {
+    "554071670143451176": {
+      "emojis": [],
+      "animation": "WAVE",
+      "typing_suggestion": "VENTING"
+    }
+  }
+}
