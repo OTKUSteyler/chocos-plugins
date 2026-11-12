@@ -7,7 +7,7 @@
   "contributors": [
     "k1ng_op <641266820187160576> (https://github.com/k1ng0p \"GitHub\")"
   ],
-  "version": "1.0.8",
+  "version": "1.0.9",
   "dependencies": {
     "com.otkusteyler.lib": {
       "version": ">=1.0.0 <2"
