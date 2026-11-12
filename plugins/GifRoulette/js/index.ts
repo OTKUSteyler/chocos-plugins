@@ -63,12 +63,17 @@ interface MessageUtil {
 	editMessage(...args: unknown[]): unknown
 }
 
+type FavoriteGifs = { favoriteGifs?: { gifs?: Record<string, unknown> } }
+
 interface FrecencySettingsModule {
 	FrecencyUserSettingsActionCreators?: {
-		getCurrentValue?: () => {
-			favoriteGifs?: { gifs?: Record<string, unknown> }
-		}
+		getCurrentValue?: () => FavoriteGifs
 	}
+}
+
+interface ProtoStore {
+	frecencyWithoutFetchingLatest?: FavoriteGifs
+	settings?: FavoriteGifs
 }
 
 let commands: ApplicationCommand[] = []
@@ -80,11 +85,31 @@ export default plugin({
 	start({ cleanup }) {
 		let messageUtil: MessageUtil | undefined
 		let frecency: FrecencySettingsModule | undefined
+		let proto: ProtoStore | undefined
+
+		function findFavorites(): Record<string, unknown> | undefined {
+			let fromActionCreators: Record<string, unknown> | undefined
+			try {
+				fromActionCreators =
+					frecency?.FrecencyUserSettingsActionCreators?.getCurrentValue?.()
+						?.favoriteGifs?.gifs
+			} catch {}
+
+			return (
+				proto?.frecencyWithoutFetchingLatest?.favoriteGifs?.gifs ??
+				fromActionCreators ??
+				proto?.settings?.favoriteGifs?.gifs
+			)
+		}
 
 		function getMessage(): string {
-			const store =
-				frecency?.FrecencyUserSettingsActionCreators?.getCurrentValue?.()
-			const gifs = store?.favoriteGifs?.gifs
+			const gifs = findFavorites()
+			console.log('[gifroulette] favorites lookup', {
+				hasProto: !!proto,
+				protoKeys: proto ? Object.keys(proto).slice(0, 15) : [],
+				hasFrecency: !!frecency,
+				count: gifs ? Object.keys(gifs).length : 0,
+			})
 			if (!gifs) return NoFavorites
 
 			const urls = Object.keys(gifs)
@@ -93,10 +118,9 @@ export default plugin({
 			return urls[Math.floor(Math.random() * urls.length)]!
 		}
 
-		// FIX 1: `readBuiltIns` is a reference to getBuiltInCommands captured
-		// BEFORE we patch it, and registerCommand runs BEFORE the patch is
-		// installed. Previously this called the already-patched function, which
-		// re-entered our own patch (and any other plugin's patch, e.g. petpet).
+		// `readBuiltIns` is getBuiltInCommands captured BEFORE we patch it, and
+		// registerCommand runs BEFORE the patch is installed, so this never
+		// re-enters our own patch (or another plugin's, e.g. petpet).
 		function registerCommand(
 			readBuiltIns: GetBuiltInCommands,
 			command: ApplicationCommand,
@@ -116,8 +140,7 @@ export default plugin({
 				)
 			}
 
-			// FIX 2: sort a copy. Sorting in place reordered Discord's own
-			// cached built-in command array.
+			// Sort a copy so Discord's own cached array isn't reordered.
 			const sorted = [...(builtInCommands ?? [])].sort(
 				(a, b) => parseInt(b.id ?? '0', 10) - parseInt(a.id ?? '0', 10),
 			)
@@ -142,10 +165,9 @@ export default plugin({
 		}
 
 		function patchBuiltInCommands(commandsModule: CommandsModule): () => void {
-			// FIX 3: re-entrancy guard. If another plugin's patch on the same
-			// function ends up calling back into this one, return the last
-			// result instead of calling `original` again. That is what breaks
-			// the gifroulette <-> petpet infinite recursion.
+			// Re-entrancy guard: if another plugin's patch on the same function
+			// calls back into this one, return the last result instead of
+			// calling `original` again (prevents gifroulette <-> petpet recursion).
 			let depth = 0
 			let lastResult: ApplicationCommand[] = []
 
@@ -193,6 +215,12 @@ export default plugin({
 					frecency = mod
 				},
 			),
+			getModules(
+				withProps<ProtoStore>('frecencyWithoutFetchingLatest'),
+				mod => {
+					proto = mod
+				},
+			),
 			getModules(withProps<CommandsModule>('getBuiltInCommands'), Commands => {
 				// Capture the unpatched function first, register, THEN patch.
 				const readBuiltIns = Commands.getBuiltInCommands.bind(Commands)
@@ -204,12 +232,21 @@ export default plugin({
 						description: 'Sends a random GIF from your favorites',
 						options: [],
 						execute: (_args, ctx) => {
-							messageUtil?.sendMessage(
-								ctx.channel.id,
-								{ content: getMessage() },
-								void 0,
-								{ nonce: Date.now().toString() },
-							)
+							const content = getMessage()
+							console.log('[gifroulette] execute', ctx?.channel?.id, content)
+
+							if (messageUtil) {
+								messageUtil.sendMessage(
+									ctx.channel.id,
+									{ content },
+									void 0,
+									{ nonce: Date.now().toString() },
+								)
+								return
+							}
+
+							// sendMessage module wasn't found: let Discord send it.
+							return { content }
 						},
 					}),
 				)
