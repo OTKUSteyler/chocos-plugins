@@ -83,28 +83,16 @@ interface MessageUtil {
 
 // Discord stores favorites as { [url]: { format, src, width, height, order } }
 type FavoriteGif = { src?: string; format?: number } & Record<string, unknown>
-type FavoriteGifs = { favoriteGifs?: { gifs?: Record<string, FavoriteGif> } }
-
-interface FrecencySettingsModule {
-	FrecencyUserSettingsActionCreators?: {
-		getCurrentValue?: () => FavoriteGifs
-	}
-}
-
-interface ProtoStore {
-	frecencyWithoutFetchingLatest?: FavoriteGifs
-	settings?: FavoriteGifs
-}
+type GifMap = Record<string, FavoriteGif>
 
 // ---------------------------------------------------------------------------
-// GIF providers
+// GIF providers (Discord only uses Tenor, Giphy and Klipy)
 // ---------------------------------------------------------------------------
 
 const PROVIDER_HOSTS: Record<string, string[]> = {
-	tenor: ['tenor.com', 'tenor.co', 'media.tenor.com'],
-	giphy: ['giphy.com', 'media.giphy.com', 'gph.is'],
-	klipy: ['klipy.com', 'klipy.co'],
-	imgur: ['imgur.com', 'i.imgur.com'],
+	tenor: ['tenor.com', 'tenor.co'],
+	giphy: ['giphy.com', 'gph.is'],
+	klipy: ['klipy.com'],
 }
 
 const PROVIDER_CHOICES = ['all', ...Object.keys(PROVIDER_HOSTS), 'other']
@@ -132,6 +120,64 @@ function classify(url: string, gif: FavoriteGif | undefined): string {
 	return 'other'
 }
 
+// ---------------------------------------------------------------------------
+// Favorites discovery
+// ---------------------------------------------------------------------------
+
+function toGifMap(v: unknown): GifMap | undefined {
+	if (!v) return undefined
+	if (v instanceof Map) return Object.fromEntries(v) as GifMap
+	if (typeof v === 'object') return v as GifMap
+	return undefined
+}
+
+// Depth-limited search for a `favoriteGifs.gifs` object anywhere inside `root`.
+function deepFindFavorites(root: unknown, maxDepth = 4): GifMap | undefined {
+	const seen = new Set<unknown>()
+	let budget = 3000
+
+	function walk(node: unknown, depth: number): GifMap | undefined {
+		if (!node || typeof node !== 'object' || budget-- <= 0) return undefined
+		if (seen.has(node)) return undefined
+		seen.add(node)
+
+		const direct = toGifMap((node as any).favoriteGifs?.gifs)
+		if (direct && Object.keys(direct).length > 0) return direct
+		if (depth >= maxDepth) return undefined
+
+		let keys: string[] = []
+		try {
+			keys = Object.keys(node)
+		} catch {}
+		for (const key of keys) {
+			let child: unknown
+			try {
+				child = (node as any)[key]
+			} catch {
+				continue
+			}
+			const found = walk(child, depth + 1)
+			if (found) return found
+		}
+		return undefined
+	}
+
+	return walk(root, 0)
+}
+
+function protoNames(obj: any): string[] {
+	const names = new Set<string>()
+	try {
+		for (const k of Object.keys(obj)) names.add(k)
+		let p = Object.getPrototypeOf(obj)
+		for (let i = 0; p && p !== Object.prototype && i < 3; i++) {
+			for (const k of Object.getOwnPropertyNames(p)) names.add(k)
+			p = Object.getPrototypeOf(p)
+		}
+	} catch {}
+	return [...names].slice(0, 40)
+}
+
 let commands: ApplicationCommand[] = []
 
 const NoFavorites =
@@ -140,38 +186,46 @@ const NoFavorites =
 export default plugin({
 	start({ cleanup }) {
 		let messageUtil: MessageUtil | undefined
-		let frecency: FrecencySettingsModule | undefined
-		let proto: ProtoStore | undefined
 		let patchCalls = 0
 
-		function findFavorites(): Record<string, FavoriteGif> | undefined {
-			const sources: Array<[string, () => Record<string, FavoriteGif> | undefined]> =
-				[
+		// Every module that might hold the favorites. All of them get probed.
+		const candidates: any[] = []
+		function addCandidate(label: string, mod: any) {
+			if (!mod || candidates.includes(mod)) return
+			candidates.push(mod)
+			dbg(`candidate (${label}) keys:`, protoNames(mod))
+		}
+
+		function findFavorites(): GifMap | undefined {
+			for (const [i, c] of candidates.entries()) {
+				const attempts: Array<[string, () => unknown]> = [
+					['.frecencyWithoutFetchingLatest', () => c.frecencyWithoutFetchingLatest],
+					['.settings', () => c.settings],
+					['.proto', () => c.proto],
+					['.getCurrentValue()', () => c.getCurrentValue?.()],
 					[
-						'proto.frecencyWithoutFetchingLatest',
-						() => proto?.frecencyWithoutFetchingLatest?.favoriteGifs?.gifs,
+						'.FrecencyUserSettingsActionCreators.getCurrentValue()',
+						() => c.FrecencyUserSettingsActionCreators?.getCurrentValue?.(),
 					],
-					[
-						'frecency.getCurrentValue',
-						() =>
-							frecency?.FrecencyUserSettingsActionCreators?.getCurrentValue?.()
-								?.favoriteGifs?.gifs,
-					],
-					['proto.settings', () => proto?.settings?.favoriteGifs?.gifs],
+					['.favoriteGifs', () => ({ favoriteGifs: c.favoriteGifs })],
+					['(module itself)', () => c],
 				]
 
-			for (const [name, read] of sources) {
-				try {
-					const gifs = read()
-					dbg(
-						`source ${name}:`,
-						gifs ? `${Object.keys(gifs).length} favorites` : 'nothing',
-					)
-					if (gifs && Object.keys(gifs).length > 0) return gifs
-				} catch (e) {
-					console.error(`[gifroulette] source ${name} threw`, e)
+				for (const [name, read] of attempts) {
+					try {
+						const res = read()
+						if (res == null) continue
+						const gifs =
+							toGifMap((res as any).favoriteGifs?.gifs) ?? deepFindFavorites(res)
+						const count = gifs ? Object.keys(gifs).length : 0
+						dbg(`candidate #${i} ${name}:`, count ? `${count} favorites` : 'none')
+						if (gifs && count > 0) return gifs
+					} catch (e) {
+						dbg(`candidate #${i} ${name} threw`, e)
+					}
 				}
 			}
+			dbg(`no favorites found in any of ${candidates.length} candidates`)
 			return undefined
 		}
 
@@ -212,21 +266,19 @@ export default plugin({
 
 		// Dumps everything useful to the debug console without sending anything.
 		function dumpDebug() {
-			const gifs = findFavorites()
 			console.log('[gifroulette] ---- DEBUG DUMP ----')
 			console.log('[gifroulette] messageUtil found:', !!messageUtil)
-			console.log('[gifroulette] frecency found:', !!frecency)
-			console.log('[gifroulette] proto found:', !!proto)
-			console.log(
-				'[gifroulette] proto keys:',
-				proto ? Object.keys(proto).slice(0, 20) : [],
+			console.log('[gifroulette] candidates:', candidates.length)
+			candidates.forEach((c, i) =>
+				console.log(`[gifroulette] candidate #${i} keys:`, protoNames(c)),
 			)
 			console.log('[gifroulette] registered commands:', commands.map(c => c.name))
 			console.log('[gifroulette] patch calls so far:', patchCalls)
+
+			const gifs = findFavorites()
 			if (gifs) {
-				const sample = Object.entries(gifs).slice(0, 5)
 				console.log('[gifroulette] favorites total:', Object.keys(gifs).length)
-				for (const [url, gif] of sample) {
+				for (const [url, gif] of Object.entries(gifs).slice(0, 5)) {
 					console.log('[gifroulette] sample:', {
 						url,
 						src: gif?.src,
@@ -235,7 +287,7 @@ export default plugin({
 					})
 				}
 			} else {
-				console.log('[gifroulette] no favorites found in any source')
+				console.log('[gifroulette] no favorites found in any candidate')
 			}
 			console.log('[gifroulette] ---- END DUMP ----')
 		}
@@ -353,19 +405,14 @@ export default plugin({
 					dbg('found message util')
 				},
 			),
-			getModules(
-				withProps<FrecencySettingsModule>('FrecencyUserSettingsActionCreators'),
-				mod => {
-					frecency = mod
-					dbg('found frecency module')
-				},
+			getModules(withProps<any>('FrecencyUserSettingsActionCreators'), mod =>
+				addCandidate('FrecencyUserSettingsActionCreators', mod),
 			),
-			getModules(
-				withProps<ProtoStore>('frecencyWithoutFetchingLatest'),
-				mod => {
-					proto = mod
-					dbg('found proto store')
-				},
+			getModules(withProps<any>('frecencyWithoutFetchingLatest'), mod =>
+				addCandidate('frecencyWithoutFetchingLatest', mod),
+			),
+			getModules(withProps<any>('favoriteGifs'), mod =>
+				addCandidate('favoriteGifs', mod),
 			),
 			getModules(withProps<CommandsModule>('getBuiltInCommands'), Commands => {
 				dbg('found commands module')
@@ -399,6 +446,7 @@ export default plugin({
 									args,
 									channel: ctx?.channel?.id,
 									hasMessageUtil: !!messageUtil,
+									candidates: candidates.length,
 								})
 
 								const provider = String(
@@ -437,6 +485,7 @@ export default plugin({
 			}),
 			() => {
 				commands = []
+				candidates.length = 0
 				dbg('cleaned up')
 			},
 		)
