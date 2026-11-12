@@ -2,6 +2,13 @@ import { getModules } from '@valenced/modules/finders'
 import { withProps } from '@valenced/modules/finders/filters'
 import { instead } from '@valenced/patcher'
 
+// Flip to false once everything works.
+const DEBUG = true
+
+function dbg(...args: unknown[]) {
+	if (DEBUG) console.log('[gifroulette]', ...args)
+}
+
 const ApplicationCommandType = {
 	CHAT: 1,
 	USER: 2,
@@ -16,8 +23,18 @@ const ApplicationCommandInputType = {
 	PLACEHOLDER: 4,
 } as const
 
+const ApplicationCommandOptionType = {
+	STRING: 3,
+} as const
+
 interface CommandContext {
 	channel: { id: string }
+}
+
+interface ApplicationCommandChoice {
+	name: string
+	value: string
+	displayName?: string
 }
 
 interface ApplicationCommandOption {
@@ -27,6 +44,7 @@ interface ApplicationCommandOption {
 	displayDescription?: string
 	type: number
 	required?: boolean
+	choices?: ApplicationCommandChoice[]
 }
 
 interface ApplicationCommand {
@@ -63,7 +81,9 @@ interface MessageUtil {
 	editMessage(...args: unknown[]): unknown
 }
 
-type FavoriteGifs = { favoriteGifs?: { gifs?: Record<string, unknown> } }
+// Discord stores favorites as { [url]: { format, src, width, height, order } }
+type FavoriteGif = { src?: string; format?: number } & Record<string, unknown>
+type FavoriteGifs = { favoriteGifs?: { gifs?: Record<string, FavoriteGif> } }
 
 interface FrecencySettingsModule {
 	FrecencyUserSettingsActionCreators?: {
@@ -76,6 +96,42 @@ interface ProtoStore {
 	settings?: FavoriteGifs
 }
 
+// ---------------------------------------------------------------------------
+// GIF providers
+// ---------------------------------------------------------------------------
+
+const PROVIDER_HOSTS: Record<string, string[]> = {
+	tenor: ['tenor.com', 'tenor.co', 'media.tenor.com'],
+	giphy: ['giphy.com', 'media.giphy.com', 'gph.is'],
+	klipy: ['klipy.com', 'klipy.co'],
+	imgur: ['imgur.com', 'i.imgur.com'],
+}
+
+const PROVIDER_CHOICES = ['all', ...Object.keys(PROVIDER_HOSTS), 'other']
+
+function hostOf(url: string | undefined): string | undefined {
+	if (!url) return undefined
+	try {
+		return new URL(url).hostname.toLowerCase()
+	} catch {
+		return undefined
+	}
+}
+
+function hostMatches(host: string, domain: string): boolean {
+	return host === domain || host.endsWith(`.${domain}`)
+}
+
+function classify(url: string, gif: FavoriteGif | undefined): string {
+	// Check both the favorite's key (usually the page/share URL) and its src
+	// (the media URL); either one can reveal the provider.
+	const hosts = [hostOf(url), hostOf(gif?.src)].filter(Boolean) as string[]
+	for (const [provider, domains] of Object.entries(PROVIDER_HOSTS)) {
+		if (hosts.some(h => domains.some(d => hostMatches(h, d)))) return provider
+	}
+	return 'other'
+}
+
 let commands: ApplicationCommand[] = []
 
 const NoFavorites =
@@ -86,36 +142,102 @@ export default plugin({
 		let messageUtil: MessageUtil | undefined
 		let frecency: FrecencySettingsModule | undefined
 		let proto: ProtoStore | undefined
+		let patchCalls = 0
 
-		function findFavorites(): Record<string, unknown> | undefined {
-			let fromActionCreators: Record<string, unknown> | undefined
-			try {
-				fromActionCreators =
-					frecency?.FrecencyUserSettingsActionCreators?.getCurrentValue?.()
-						?.favoriteGifs?.gifs
-			} catch {}
+		function findFavorites(): Record<string, FavoriteGif> | undefined {
+			const sources: Array<[string, () => Record<string, FavoriteGif> | undefined]> =
+				[
+					[
+						'proto.frecencyWithoutFetchingLatest',
+						() => proto?.frecencyWithoutFetchingLatest?.favoriteGifs?.gifs,
+					],
+					[
+						'frecency.getCurrentValue',
+						() =>
+							frecency?.FrecencyUserSettingsActionCreators?.getCurrentValue?.()
+								?.favoriteGifs?.gifs,
+					],
+					['proto.settings', () => proto?.settings?.favoriteGifs?.gifs],
+				]
 
-			return (
-				proto?.frecencyWithoutFetchingLatest?.favoriteGifs?.gifs ??
-				fromActionCreators ??
-				proto?.settings?.favoriteGifs?.gifs
-			)
+			for (const [name, read] of sources) {
+				try {
+					const gifs = read()
+					dbg(
+						`source ${name}:`,
+						gifs ? `${Object.keys(gifs).length} favorites` : 'nothing',
+					)
+					if (gifs && Object.keys(gifs).length > 0) return gifs
+				} catch (e) {
+					console.error(`[gifroulette] source ${name} threw`, e)
+				}
+			}
+			return undefined
 		}
 
-		function getMessage(): string {
+		function getMessage(provider: string): string {
 			const gifs = findFavorites()
-			console.log('[gifroulette] favorites lookup', {
-				hasProto: !!proto,
-				protoKeys: proto ? Object.keys(proto).slice(0, 15) : [],
-				hasFrecency: !!frecency,
-				count: gifs ? Object.keys(gifs).length : 0,
-			})
 			if (!gifs) return NoFavorites
 
-			const urls = Object.keys(gifs)
-			if (urls.length === 0) return NoFavorites
+			const entries = Object.entries(gifs)
 
-			return urls[Math.floor(Math.random() * urls.length)]!
+			const byProvider: Record<string, string[]> = {}
+			for (const [url, gif] of entries) {
+				;(byProvider[classify(url, gif)] ??= []).push(url)
+			}
+			dbg(
+				'provider counts:',
+				Object.fromEntries(
+					Object.entries(byProvider).map(([p, u]) => [p, u.length]),
+				),
+			)
+
+			const pool =
+				provider === 'all'
+					? entries.map(([url]) => url)
+					: (byProvider[provider] ?? [])
+
+			dbg(`provider=${provider}, pool size=${pool.length}`)
+
+			if (pool.length === 0) {
+				return provider === 'all'
+					? NoFavorites
+					: `❌ You don't have any favorite ${provider} GIFs.`
+			}
+
+			const picked = pool[Math.floor(Math.random() * pool.length)]!
+			dbg('picked:', picked, '->', classify(picked, gifs[picked]))
+			return picked
+		}
+
+		// Dumps everything useful to the debug console without sending anything.
+		function dumpDebug() {
+			const gifs = findFavorites()
+			console.log('[gifroulette] ---- DEBUG DUMP ----')
+			console.log('[gifroulette] messageUtil found:', !!messageUtil)
+			console.log('[gifroulette] frecency found:', !!frecency)
+			console.log('[gifroulette] proto found:', !!proto)
+			console.log(
+				'[gifroulette] proto keys:',
+				proto ? Object.keys(proto).slice(0, 20) : [],
+			)
+			console.log('[gifroulette] registered commands:', commands.map(c => c.name))
+			console.log('[gifroulette] patch calls so far:', patchCalls)
+			if (gifs) {
+				const sample = Object.entries(gifs).slice(0, 5)
+				console.log('[gifroulette] favorites total:', Object.keys(gifs).length)
+				for (const [url, gif] of sample) {
+					console.log('[gifroulette] sample:', {
+						url,
+						src: gif?.src,
+						format: gif?.format,
+						provider: classify(url, gif),
+					})
+				}
+			} else {
+				console.log('[gifroulette] no favorites found in any source')
+			}
+			console.log('[gifroulette] ---- END DUMP ----')
 		}
 
 		// `readBuiltIns` is getBuiltInCommands captured BEFORE we patch it, and
@@ -132,7 +254,8 @@ export default plugin({
 					true,
 					false,
 				)
-			} catch {
+			} catch (e) {
+				dbg('readBuiltIns(CHAT) threw, falling back to all types', e)
 				builtInCommands = readBuiltIns(
 					Object.values(ApplicationCommandType),
 					true,
@@ -157,6 +280,13 @@ export default plugin({
 			command.displayDescription ??= command.description
 			command.untranslatedDescription ??= command.description
 
+			dbg('registered', {
+				name: command.name,
+				id: command.id,
+				builtInCount: builtInCommands?.length ?? 0,
+				lastBuiltInId: lastCommand?.id,
+			})
+
 			commands.push(command)
 
 			return () => {
@@ -175,25 +305,38 @@ export default plugin({
 				commandsModule as any,
 				'getBuiltInCommands',
 				(args: any[], original: (...a: any[]) => any) => {
-					if (depth > 0) return lastResult
+					if (depth > 0) {
+						dbg('re-entrant getBuiltInCommands call, returning cached result')
+						return lastResult
+					}
 
 					depth++
 					try {
+						patchCalls++
 						const result: ApplicationCommand[] =
 							original.apply(commandsModule, args) ?? []
 
 						const type = args[0]
 						const wanted: number[] = Array.isArray(type) ? type : [type]
 
-						const merged = [
-							...result,
-							...commands.filter(
-								c =>
-									wanted.includes(c.type ?? ApplicationCommandType.CHAT) &&
-									!result.includes(c),
-							),
-						]
+						const ours = commands.filter(
+							c =>
+								wanted.includes(c.type ?? ApplicationCommandType.CHAT) &&
+								!result.includes(c),
+						)
+
+						const merged = [...result, ...ours]
 						lastResult = merged
+
+						// Only log the first few calls; this runs very often.
+						if (patchCalls <= 5) {
+							dbg('getBuiltInCommands patched call', {
+								call: patchCalls,
+								requestedTypes: wanted,
+								originalCount: result.length,
+								addedCount: ours.length,
+							})
+						}
 						return merged
 					} finally {
 						depth--
@@ -207,21 +350,26 @@ export default plugin({
 				withProps<MessageUtil>('sendMessage', 'editMessage'),
 				mod => {
 					messageUtil = mod
+					dbg('found message util')
 				},
 			),
 			getModules(
 				withProps<FrecencySettingsModule>('FrecencyUserSettingsActionCreators'),
 				mod => {
 					frecency = mod
+					dbg('found frecency module')
 				},
 			),
 			getModules(
 				withProps<ProtoStore>('frecencyWithoutFetchingLatest'),
 				mod => {
 					proto = mod
+					dbg('found proto store')
 				},
 			),
 			getModules(withProps<CommandsModule>('getBuiltInCommands'), Commands => {
+				dbg('found commands module')
+
 				// Capture the unpatched function first, register, THEN patch.
 				const readBuiltIns = Commands.getBuiltInCommands.bind(Commands)
 
@@ -230,23 +378,58 @@ export default plugin({
 						name: 'gifroulette',
 						displayName: 'GIF Roulette',
 						description: 'Sends a random GIF from your favorites',
-						options: [],
-						execute: (_args, ctx) => {
-							const content = getMessage()
-							console.log('[gifroulette] execute', ctx?.channel?.id, content)
+						options: [
+							{
+								name: 'provider',
+								displayName: 'provider',
+								description:
+									'Only pick GIFs from this provider (or "debug" to log diagnostics)',
+								displayDescription:
+									'Only pick GIFs from this provider (or "debug" to log diagnostics)',
+								type: ApplicationCommandOptionType.STRING,
+								required: false,
+								choices: [...PROVIDER_CHOICES, ...(DEBUG ? ['debug'] : [])].map(
+									value => ({ name: value, displayName: value, value }),
+								),
+							},
+						],
+						execute: (args, ctx) => {
+							try {
+								dbg('execute', {
+									args,
+									channel: ctx?.channel?.id,
+									hasMessageUtil: !!messageUtil,
+								})
 
-							if (messageUtil) {
-								messageUtil.sendMessage(
-									ctx.channel.id,
-									{ content },
-									void 0,
-									{ nonce: Date.now().toString() },
+								const provider = String(
+									(args as Array<{ name?: string; value?: unknown }> | undefined)
+										?.find(a => a?.name === 'provider')?.value ?? 'all',
 								)
-								return
-							}
 
-							// sendMessage module wasn't found: let Discord send it.
-							return { content }
+								if (provider === 'debug') {
+									dumpDebug()
+									return
+								}
+
+								const content = getMessage(provider)
+
+								if (messageUtil) {
+									const res = messageUtil.sendMessage(
+										ctx.channel.id,
+										{ content },
+										void 0,
+										{ nonce: Date.now().toString() },
+									)
+									dbg('sendMessage called', res)
+									return
+								}
+
+								// sendMessage module wasn't found: let Discord send it.
+								dbg('no messageUtil, returning { content } instead')
+								return { content }
+							} catch (e) {
+								console.error('[gifroulette] execute threw', e)
+							}
 						},
 					}),
 				)
@@ -254,6 +437,7 @@ export default plugin({
 			}),
 			() => {
 				commands = []
+				dbg('cleaned up')
 			},
 		)
 	},
