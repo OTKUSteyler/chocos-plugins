@@ -79,7 +79,13 @@ export default function PetOverlay({ pet, save }: { pet: PetState; save: () => v
         let last = Date.now();
         let wasRunning = false;
         let p = 0;
+        let seenRev = pet.rev ?? 0;
         const loop = setInterval(() => {
+            if ((pet.rev ?? 0) !== seenRev) { // saved pet finished loading after we mounted
+                seenRev = pet.rev ?? 0;
+                if (pet.x != null && pet.y != null) { home.x = pet.x; home.y = pet.y; }
+                force(n => n + 1);
+            }
             const now = Date.now();
             const dt = Math.min((now - last) / 1000, 0.1);
             last = now;
