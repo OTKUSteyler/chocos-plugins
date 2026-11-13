@@ -9,6 +9,8 @@ export interface PetState {
     xp: number;
     lastTick: number;
     lastFed: number;
+    x?: number;
+    y?: number;
 }
 
 export const DEFAULT_NAME = "Capri";
