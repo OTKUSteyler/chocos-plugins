@@ -39,6 +39,33 @@
         }
       }
     },
+    "com.otkusteyler.capri-pet": {
+      "name": "Capri Pet",
+      "description": "A neon cyber-kitten pet that floats on your screen. Drag her, pat her, feed her.",
+      "author": "choccychan aka btmc727 <554071670143451176>",
+      "icon": "RobotIcon",
+      "channels": {
+        "latest": "1.0.2"
+      },
+      "versions": {
+        "1.0.2": {
+          "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.capri-pet@1.0.2.zip",
+          "sha256": "480e07cd47edad1b5784a382a9a5288bc4b7d0cc9b527c8b0872385ce15e9ef1",
+          "size": 3232,
+          "dependencies": {
+            "com.otkusteyler.lib": {
+              "version": ">=1.0.0 <2"
+            },
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    },
     "com.otkusteyler.gifroulette": {
       "name": "GIF Roulette",
       "description": "Sends a random GIF from your favorites.",
