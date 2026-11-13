@@ -4,7 +4,7 @@
   "name": "Capri Pet",
   "description": "A neon cyber-kitten pet that floats on your screen. Drag her, pat her, feed her.",
   "author": "choccychan aka btmc727 <554071670143451176>",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "dependencies": {
     "com.otkusteyler.lib": {
       "version": ">=1.0.0 <2"
