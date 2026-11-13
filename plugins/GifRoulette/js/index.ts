@@ -461,44 +461,71 @@ export default plugin({
 							},
 						],
 						execute: async (args, ctx) => {
+							const channelId = ctx?.channel?.id
 							try {
 								await ensureFavoritesLoaded()
 
 								dbg('execute', {
 									args,
-									channel: ctx?.channel?.id,
+									channel: channelId,
 									hasMessageUtil: !!messageUtil,
 									candidates: candidates.length,
 								})
 
-								const provider = String(
-									(args as Array<{ name?: string; value?: unknown }> | undefined)
-										?.find(a => a?.name === 'provider')?.value ?? 'all',
-								)
+								// Discord/Valenced may provide options as [{ name, value }]
+								// or as a plain object. Accept both shapes.
+								const optionArgs = args as
+									| Array<{ name?: string; value?: unknown }>
+									| Record<string, unknown>
+									| undefined
+								const optionValue = Array.isArray(optionArgs)
+									? optionArgs.find(a => a?.name === 'provider')?.value
+									: optionArgs?.provider
+								const provider = String(optionValue ?? 'all').toLowerCase()
 
 								if (provider === 'debug') {
 									dumpDebug()
 									return
 								}
 
+								if (!PROVIDER_CHOICES.includes(provider)) {
+									const error = `❌ Unknown provider: ${provider}`
+									if (messageUtil && channelId) {
+										await messageUtil.sendMessage(channelId, { content: error })
+										return
+									}
+									return { content: error }
+								}
+
 								const content = getMessage(provider)
 
-								if (messageUtil) {
-									const res = messageUtil.sendMessage(
-										ctx.channel.id,
-										{ content },
-										void 0,
-										{ nonce: Date.now().toString() },
-									)
-									dbg('sendMessage called', res)
+								// Send through Discord's message utility. Returning { content }
+								// from a locally registered command is not handled consistently
+								// by Valenced's command dispatcher, which caused the command to
+								// appear and execute without posting anything.
+								if (messageUtil && channelId) {
+									await messageUtil.sendMessage(channelId, { content })
+									dbg('sent message to channel', channelId, content)
 									return
 								}
 
-								// sendMessage module wasn't found: let Discord send it.
-								dbg('no messageUtil, returning { content } instead')
+								// Fallback for builds where the message utility has not loaded yet.
+								dbg('message utility unavailable; returning command result', {
+									hasMessageUtil: !!messageUtil,
+									hasChannel: !!channelId,
+								})
 								return { content }
 							} catch (e) {
 								console.error('[gifroulette] execute threw', e)
+								if (messageUtil && channelId) {
+									try {
+										await messageUtil.sendMessage(channelId, {
+											content: '❌ GIF Roulette failed. Check the console for details.',
+										})
+									} catch (sendError) {
+										console.error('[gifroulette] failed to send error message', sendError)
+									}
+								}
 							}
 						},
 					}),
