@@ -1,13 +1,22 @@
 {
-    "id": "com.otkusteyler.capri-pet",
-    "name": "Capri Pet",
-    "version": "1.0.0",
-    "description": "A neon cyber-kitten pet that floats on your screen. Drag her, pat her, feed her.",
-    "authors": [{ "name": "choco" }],
-    "main": "dist/index.js",
-    "icon": "ic_robot",
-    "dependencies": {
-        "valenced.api": "*",
-        "discord": "*"
+  "format": 1,
+  "id": "com.otkusteyler.capri-pet",
+  "name": "Capri Pet",
+  "description": "A neon cyber-kitten pet that floats on your screen. Drag her, pat her, feed her.",
+  "author": "choccychan aka btmc727 <554071670143451176>",
+  "version": "1.0.1",
+  "dependencies": {
+    "com.otkusteyler.lib": {
+      "version": ">=1.0.0 <2"
+    },
+    "valenced.api": {
+      "version": ">=1 <2"
+    },
+    "discord": {
+      "version": "*"
     }
+  },
+  "dist": {
+    "script": "index.ts"
+  }
 }

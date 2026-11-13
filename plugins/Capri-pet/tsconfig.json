@@ -8,5 +8,5 @@
         "skipLibCheck": true,
         "types": ["@valenced/types"]
     },
-    "include": ["src"]
+    "include": ["*.ts", "*.tsx"]
 }
