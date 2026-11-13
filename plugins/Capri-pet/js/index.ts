@@ -12,7 +12,7 @@ export default {
     manifest: {
         id: "com.otkusteyler.capri-pet",
         name: "Capri Pet",
-        version: "1.0.0",
+        version: "1.0.1",
         description: "A neon cyber-kitten pet that lives in your Discord.",
         authors: [{ name: "choco" }]
     },
