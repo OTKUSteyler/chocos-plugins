@@ -196,6 +196,25 @@ export default plugin({
 			dbg(`candidate (${label}) keys:`, protoNames(mod))
 		}
 
+		// The frecency/favorites proto is lazy-loaded: until something calls
+		// loadIfNecessary() it is an EMPTY default object, so favoriteGifs.gifs
+		// is {} and the command reports "no favorites". Discord's GIF picker
+		// calls this from useFrecencySettings(); we have to do it ourselves.
+		async function ensureFavoritesLoaded() {
+			for (const c of candidates) {
+				const creators = c?.FrecencyUserSettingsActionCreators ?? c
+				if (typeof creators?.loadIfNecessary !== 'function') continue
+				try {
+					await creators.loadIfNecessary()
+					dbg('loadIfNecessary() done')
+					return
+				} catch (e) {
+					dbg('loadIfNecessary() threw', e)
+				}
+			}
+			dbg('no candidate exposes loadIfNecessary')
+		}
+
 		function findFavorites(): GifMap | undefined {
 			for (const [i, c] of candidates.entries()) {
 				const attempts: Array<[string, () => unknown]> = [
@@ -301,8 +320,9 @@ export default plugin({
 		): () => void {
 			let builtInCommands: ApplicationCommand[]
 			try {
+				// First arg MUST be an array: Discord does `types.includes(item.type)`.
 				builtInCommands = readBuiltIns(
-					ApplicationCommandType.CHAT,
+					[ApplicationCommandType.CHAT],
 					true,
 					false,
 				)
@@ -440,8 +460,10 @@ export default plugin({
 								),
 							},
 						],
-						execute: (args, ctx) => {
+						execute: async (args, ctx) => {
 							try {
+								await ensureFavoritesLoaded()
+
 								dbg('execute', {
 									args,
 									channel: ctx?.channel?.id,
