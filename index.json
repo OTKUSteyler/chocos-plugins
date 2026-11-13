@@ -47,7 +47,7 @@
         "k1ng_op <641266820187160576> (https://github.com/k1ng0p \"GitHub\")"
       ],
       "channels": {
-        "latest": "1.1.2"
+        "latest": "1.1.3"
       },
       "versions": {
         "1.0.0": {
@@ -228,6 +228,22 @@
           "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.gifroulette@1.1.2.zip",
           "sha256": "1c369ea020319cf0731d367726fe0a909ddb3be2d79a62f73549fdea998ed83e",
           "size": 1825,
+          "dependencies": {
+            "com.otkusteyler.lib": {
+              "version": ">=1.0.0 <2"
+            },
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.1.3": {
+          "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.gifroulette@1.1.3.zip",
+          "sha256": "e9581dd09df91a8aa27ad8cba9b82205d5007135be8921a9f799e7ee52b06439",
+          "size": 1483,
           "dependencies": {
             "com.otkusteyler.lib": {
               "version": ">=1.0.0 <2"
