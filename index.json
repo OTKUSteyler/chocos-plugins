@@ -45,7 +45,7 @@
       "author": "choccychan aka btmc727 <554071670143451176>",
       "icon": "RobotIcon",
       "channels": {
-        "latest": "1.0.3"
+        "latest": "1.0.4"
       },
       "versions": {
         "1.0.2": {
@@ -68,6 +68,22 @@
           "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.capri-pet@1.0.3.zip",
           "sha256": "81951bb51748bad26c85184a3225e80e54ddc6e10b5bcada1861d7bbe0aa2551",
           "size": 3232,
+          "dependencies": {
+            "com.otkusteyler.lib": {
+              "version": ">=1.0.0 <2"
+            },
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.0.4": {
+          "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.capri-pet@1.0.4.zip",
+          "sha256": "779e11b8738dbda983be50a2e49e4b38e097f7bfbb115c3ebd6ae6bc44df4b19",
+          "size": 3592,
           "dependencies": {
             "com.otkusteyler.lib": {
               "version": ">=1.0.0 <2"
