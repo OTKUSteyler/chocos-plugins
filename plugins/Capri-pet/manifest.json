@@ -1,0 +1,23 @@
+{
+	"format": 1,
+	"id": "dxckie.capri-pet",
+	"name": "Capri Pet",
+	"description": "A neon cyber-kitten pet that floats on your screen. Drag her, pat her, feed her.",
+	"author": "dxckie (https://github.com/dxckie-cell \"GitHub\")",
+	"contributors": [
+		"choccychan aka btmc727 <554071670143451176> (https://github.com/OTKUSteyler \"GitHub\")"
+	],
+	"icon": "RobotIcon",
+	"version": "1.0.8",
+	"dependencies": {
+		"valenced.api": {
+			"version": ">=1 <2"
+		},
+		"discord": {
+			"version": "*"
+		}
+	},
+	"dist": {
+		"script": "index.js"
+	}
+}
