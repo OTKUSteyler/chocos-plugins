@@ -1,0 +1,13 @@
+{
+    "id": "com.otkusteyler.capri-pet",
+    "name": "Capri Pet",
+    "version": "1.0.0",
+    "description": "A neon cyber-kitten pet that floats on your screen. Drag her, pat her, feed her.",
+    "authors": [{ "name": "choco" }],
+    "main": "dist/index.js",
+    "icon": "ic_robot",
+    "dependencies": {
+        "valenced.api": "*",
+        "discord": "*"
+    }
+}

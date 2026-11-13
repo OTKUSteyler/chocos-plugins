@@ -1,0 +1,24 @@
+{
+    "name": "capri-pet",
+    "version": "1.0.0",
+    "description": "A neon cyber-kitten pet that lives in your Discord. Feed it, play with it, show it off with /pet.",
+    "license": "MIT",
+    "valenced": {
+        "id": "com.otkusteyler.capri-pet",
+        "name": "Capri Pet",
+        "icon": "ic_robot",
+        "dependencies": {
+            "valenced.api": "*",
+            "discord": "*"
+        }
+    },
+    "scripts": {
+        "build": "valenced-plugin build",
+        "dev": "valenced-plugin serve"
+    },
+    "devDependencies": {
+        "@valenced/plugin-cli": "latest",
+        "@valenced/types": "latest",
+        "typescript": "^5.4.0"
+    }
+}
