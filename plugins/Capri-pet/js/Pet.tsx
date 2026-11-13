@@ -1,8 +1,8 @@
 // Always-on-screen pet. Drawn from plain Views (an original design: a neon cyber-kitten),
 // so it needs no image assets and no extra native modules.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Dimensions, PanResponder, Text, View } from "react-native";
-import { feed, level, nap, pat, play, speak, status, tick, type PetState } from "./pet";
+import { feed, level, nap, pat, play, speak, tick, type PetState } from "./pet";
 
 const SIZE = 64;
 const NEON = { pink: "#ff3df2", cyan: "#27f5ff", body: "#1a1530", rim: "#6b3cff" };
@@ -40,7 +40,7 @@ function Kitten({ mood, sleepy, hungry }: { mood: number; sleepy: boolean; hungr
 
 export default function PetOverlay({ pet, save }: { pet: PetState; save: () => void }) {
     const { width, height } = Dimensions.get("window");
-    const pos = useRef(new Animated.ValueXY({ x: (pet as any).x ?? width - SIZE - 12, y: (pet as any).y ?? height * 0.55 })).current;
+    const pos = useRef(new Animated.ValueXY({ x: pet.x ?? width - SIZE - 12, y: pet.y ?? height * 0.55 })).current;
     const bob = useRef(new Animated.Value(0)).current;
     const [, force] = useState(0);
     const [bubble, setBubble] = useState<string | null>(null);
@@ -87,7 +87,7 @@ export default function PetOverlay({ pet, save }: { pet: PetState; save: () => v
                     const x = Math.max(0, Math.min((pos.x as any)._value, width - SIZE));
                     const y = Math.max(40, Math.min((pos.y as any)._value, height - SIZE - 80));
                     Animated.spring(pos, { toValue: { x, y }, useNativeDriver: false }).start();
-                    (pet as any).x = x; (pet as any).y = y; save();
+                    pet.x = x; pet.y = y; save();
                 } else if (Date.now() - pressAt > 450) {
                     // long press: feed or play depending on what she needs
                     act(pet.hunger > 40 ? feed : pet.energy < 25 ? nap : play);
@@ -118,5 +118,3 @@ export default function PetOverlay({ pet, save }: { pet: PetState; save: () => v
         </View>
     );
 }
-
-export { status };
