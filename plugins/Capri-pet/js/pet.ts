@@ -11,6 +11,8 @@ export interface PetState {
     lastFed: number;
     x?: number;
     y?: number;
+    /** bumped when saved data is loaded after the overlay mounted */
+    rev?: number;
 }
 
 export const DEFAULT_NAME = "Capri";
