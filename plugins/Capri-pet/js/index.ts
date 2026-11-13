@@ -1,6 +1,6 @@
 import { getJsonStorage, pluginStoragePathFor } from "@valenced/json-storage";
-import { createElement, Fragment } from "react";
-import PetOverlay from "./Pet";
+import { createElement } from "react";
+import { PetHost } from "./Pet";
 import { newPet, tick, type PetState } from "./pet";
 
 const ID = "com.otkusteyler.capri-pet";
@@ -23,18 +23,18 @@ export default plugin({
         };
         api.cleanup(() => clearTimeout(timer as any));
 
-        // The app-level toast container is mounted above every screen, so the pet
-        // rendered next to it stays on screen everywhere.
-        const [exports] = lookupModule(filters.withName("AppToastContainer"), { initialize: true } as any) as [any];
+        // Wrap the app root: the wrapper watches every touch (without consuming it) so the pet
+        // can chase your finger, and draws her on top of everything.
+        const [exports] = lookupModule(filters.withName("AppContainer"), { initialize: true } as any) as [any];
         const target = exports && typeof exports.default === "function" ? exports : undefined;
 
         if (!target) {
-            console.warn("[capri-pet] AppToastContainer not found; overlay disabled");
+            console.warn("[capri-pet] AppContainer not found; pet disabled");
             return;
         }
 
         const unpatch = patcher.after(target, "default", (_args: any, ret: any) =>
-            createElement(Fragment, null, ret, createElement(PetOverlay, { pet, save })));
+            createElement(PetHost, { pet, save }, ret));
         api.cleanup(unpatch);
     }
 });
