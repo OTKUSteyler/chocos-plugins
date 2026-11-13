@@ -17,7 +17,7 @@ const ApplicationCommandInputType = {
 } as const
 
 interface CommandContext {
-	channel: { id: string }
+	channel?: { id?: string }
 }
 
 interface ApplicationCommandOption {
@@ -63,11 +63,14 @@ interface MessageUtil {
 	editMessage(...args: unknown[]): unknown
 }
 
+interface FrecencyStore {
+	favoriteGifs?: { gifs?: Record<string, unknown> }
+}
+
 interface FrecencySettingsModule {
 	FrecencyUserSettingsActionCreators?: {
-		getCurrentValue?: () => {
-			favoriteGifs?: { gifs?: Record<string, unknown> }
-		}
+		getCurrentValue?: () => FrecencyStore | undefined
+		loadIfNecessary?: () => Promise<unknown> | unknown
 	}
 }
 
@@ -81,34 +84,40 @@ export default plugin({
 		let messageUtil: MessageUtil | undefined
 		let frecency: FrecencySettingsModule | undefined
 
-		function getMessage(): string {
-			const store =
-				frecency?.FrecencyUserSettingsActionCreators?.getCurrentValue?.()
-			const gifs = store?.favoriteGifs?.gifs
-			if (!gifs) return NoFavorites
+		async function getMessage(): Promise<string> {
+			const creators = frecency?.FrecencyUserSettingsActionCreators
 
-			const urls = Object.keys(gifs)
+			// The favorites store can be lazy-loaded. Load it before reading it.
+			try {
+				await creators?.loadIfNecessary?.()
+			} catch (error) {
+				console.error('[gifroulette] Failed to load favorite GIFs:', error)
+			}
+
+			const store = creators?.getCurrentValue?.()
+			const gifs = store?.favoriteGifs?.gifs
+			if (!gifs || typeof gifs !== 'object') return NoFavorites
+
+			const urls = Object.keys(gifs).filter(url => typeof url === 'string' && url.length > 0)
 			if (urls.length === 0) return NoFavorites
 
 			return urls[Math.floor(Math.random() * urls.length)]!
 		}
 
-		// FIX 1: `readBuiltIns` is a reference to getBuiltInCommands captured
-		// BEFORE we patch it, and registerCommand runs BEFORE the patch is
-		// installed. Previously this called the already-patched function, which
-		// re-entered our own patch (and any other plugin's patch, e.g. petpet).
 		function registerCommand(
 			readBuiltIns: GetBuiltInCommands,
 			command: ApplicationCommand,
 		): () => void {
 			let builtInCommands: ApplicationCommand[]
 			try {
+				// Discord expects an array of command types in this argument.
 				builtInCommands = readBuiltIns(
-					ApplicationCommandType.CHAT,
+					[ApplicationCommandType.CHAT],
 					true,
 					false,
 				)
-			} catch {
+			} catch (error) {
+				console.warn('[gifroulette] Could not read CHAT commands; trying all types:', error)
 				builtInCommands = readBuiltIns(
 					Object.values(ApplicationCommandType),
 					true,
@@ -116,15 +125,16 @@ export default plugin({
 				)
 			}
 
-			// FIX 2: sort a copy. Sorting in place reordered Discord's own
-			// cached built-in command array.
+			// Sort a copy so Discord's cached command array is not mutated.
 			const sorted = [...(builtInCommands ?? [])].sort(
 				(a, b) => parseInt(b.id ?? '0', 10) - parseInt(a.id ?? '0', 10),
 			)
 
 			const lastCommand = sorted[sorted.length - 1]
-			if (lastCommand?.id)
-				command.id = (parseInt(lastCommand.id, 10) - 1).toString()
+			if (lastCommand?.id) {
+				const lastId = parseInt(lastCommand.id, 10)
+				if (Number.isFinite(lastId)) command.id = (lastId - 1).toString()
+			}
 
 			command.applicationId ??= '-1'
 			command.type ??= ApplicationCommandType.CHAT
@@ -142,10 +152,6 @@ export default plugin({
 		}
 
 		function patchBuiltInCommands(commandsModule: CommandsModule): () => void {
-			// FIX 3: re-entrancy guard. If another plugin's patch on the same
-			// function ends up calling back into this one, return the last
-			// result instead of calling `original` again. That is what breaks
-			// the gifroulette <-> petpet infinite recursion.
 			let depth = 0
 			let lastResult: ApplicationCommand[] = []
 
@@ -163,16 +169,14 @@ export default plugin({
 						const type = args[0]
 						const wanted: number[] = Array.isArray(type) ? type : [type]
 
-						const merged = [
-							...result,
-							...commands.filter(
-								c =>
-									wanted.includes(c.type ?? ApplicationCommandType.CHAT) &&
-									!result.includes(c),
-							),
-						]
-						lastResult = merged
-						return merged
+						const ours = commands.filter(
+							command =>
+								wanted.includes(command.type ?? ApplicationCommandType.CHAT) &&
+								!result.includes(command),
+						)
+
+						lastResult = [...result, ...ours]
+						return lastResult
 					} finally {
 						depth--
 					}
@@ -194,7 +198,7 @@ export default plugin({
 				},
 			),
 			getModules(withProps<CommandsModule>('getBuiltInCommands'), Commands => {
-				// Capture the unpatched function first, register, THEN patch.
+				// Capture the original before installing our patch.
 				const readBuiltIns = Commands.getBuiltInCommands.bind(Commands)
 
 				cleanup(
@@ -203,20 +207,45 @@ export default plugin({
 						displayName: 'GIF Roulette',
 						description: 'Sends a random GIF from your favorites',
 						options: [],
-						execute: (_args, ctx) => {
-							messageUtil?.sendMessage(
-								ctx.channel.id,
-								{ content: getMessage() },
-								void 0,
-								{ nonce: Date.now().toString() },
-							)
+						execute: async (_args, ctx) => {
+							try {
+								const channelId = ctx?.channel?.id
+								if (!channelId) {
+									console.error('[gifroulette] Command context did not contain a channel ID.')
+									return { content: '❌ Could not determine the current channel.' }
+								}
+
+								const content = await getMessage()
+
+								// Prefer the direct message utility when it is available.
+								// Return the payload as a fallback so the built-in command
+								// handler can send it if the utility has not been discovered.
+								if (messageUtil?.sendMessage) {
+									messageUtil.sendMessage(
+										channelId,
+										{ content },
+										undefined,
+										{ nonce: Date.now().toString() },
+									)
+									return
+								}
+
+								console.warn('[gifroulette] sendMessage module unavailable; returning command payload.')
+								return { content }
+							} catch (error) {
+								console.error('[gifroulette] Command execution failed:', error)
+								return { content: '❌ GIF Roulette failed. Check the plugin logs for details.' }
+							}
 						},
 					}),
 				)
+
 				cleanup(patchBuiltInCommands(Commands))
 			}),
 			() => {
 				commands = []
+				messageUtil = undefined
+				frecency = undefined
 			},
 		)
 	},
