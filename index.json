@@ -573,7 +573,7 @@
         "knifecodez <1053918356375351386>"
       ],
       "channels": {
-        "latest": "1.1.8"
+        "latest": "1.1.9"
       },
       "versions": {
         "1.0.4": {
@@ -774,6 +774,22 @@
           "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.valenced.nitro-profiles@1.1.8.zip",
           "sha256": "538fcc6749e539781a6b16342b1f9e235087130439e67ef09fbfa962b1767294",
           "size": 3377,
+          "dependencies": {
+            "com.otkusteyler.lib": {
+              "version": ">=1.0.0 <2"
+            },
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.1.9": {
+          "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.valenced.nitro-profiles@1.1.9.zip",
+          "sha256": "e8ecf32bd6c496b7f5db5e10e6f913be75188b30bf8db94bfc54c173e71924ee",
+          "size": 3138,
           "dependencies": {
             "com.otkusteyler.lib": {
               "version": ">=1.0.0 <2"
