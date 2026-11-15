@@ -9,7 +9,7 @@ import { getRuntimeSettings, getSettingsStorage, setRuntimeSettings } from './st
 import type { PluginSettings } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
-const { Card, Stack, TableRow, TableRowGroup, TableSwitchRow, Text, createStyles } = Design
+const { Card, Stack, TableRow, TableRowGroup, TableSwitchRow, Text } = Design
 
 const USRBG_INVITE = 'https://discord.gg/ECg96KZ3Fh'
 const USERPFP_INVITE = 'https://discord.gg/userpfp-1129784704267210844'
@@ -28,7 +28,7 @@ function discordAvatarUrl(currentUser: any): string {
 		: `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(currentUser?.id || '0') >> 22n) % 5n)}.png`
 }
 
-const useStyles = createStyles({
+const styles = {
 	flex: { flex: 1 },
 	content: { paddingBottom: 32 },
 	avatar: { width: 92, height: 92, borderRadius: 22 },
@@ -49,11 +49,9 @@ const useStyles = createStyles({
 		justifyContent: 'center',
 	},
 	center: { textAlign: 'center' },
-})
+} as const
 
 export default function Settings() {
-	const styles = useStyles()
-
 	// Persisted settings (reactive). The in-memory copy wins so a toggle never flickers back.
 	const stored = getSettingsStorage().use()
 	const settings: PluginSettings = { ...DEFAULT_SETTINGS, ...(stored ?? {}), ...getRuntimeSettings() }
@@ -145,7 +143,7 @@ export default function Settings() {
 						)}
 					</Card>
 
-					<TableRowGroup hasIcons title="Nitro Banner">
+					<TableRowGroup title="Nitro Banner">
 						<TableSwitchRow
 							label="Community profile banners"
 							subLabel="Enable custom banners from the community collection."
@@ -166,7 +164,7 @@ export default function Settings() {
 						/>
 					</TableRowGroup>
 
-					<TableRowGroup hasIcons title="Nitro Avatar">
+					<TableRowGroup title="Nitro Avatar">
 						<TableSwitchRow
 							label="Community profile avatars"
 							subLabel="Enable custom avatars from the community collection. Restart Discord if changes don't appear."
