@@ -7,7 +7,8 @@
 "contributors": [
   "knifecodez <1053918356375351386>"
 ],
-  "version": "1.2.0",
+  "icon" : "NitroWheelIcon", 
+  "version": "1.2.1",
   "dependencies": {
     "com.otkusteyler.lib": {
       "version": ">=1.0.0 <2"
