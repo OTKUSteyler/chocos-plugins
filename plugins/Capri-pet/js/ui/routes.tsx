@@ -8,7 +8,7 @@ import SoundsReactions from "./pages/SoundsReactions"
 import Spells from "./pages/Spells"
 import * as modulesSettings from "@valenced/discord/modules/settings"
 
-const PREFIX = "dxckie.capri-pet"
+const PREFIX = "com.otkusteyler.capri-pet"
 
 export const PET_ROUTE = `${PREFIX}.pet`
 export const MOOD_ROUTE = `${PREFIX}.mood`

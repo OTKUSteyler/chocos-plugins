@@ -122,7 +122,7 @@ export function sizeLabel(dp: number): string {
 /** Capri, the only pet. */
 export const PET = { label: "Capri", defaultName: "Capri", leaves: "teleports away" } as const
 
-const METHOD = "dxckie.capri-pet"
+const METHOD = "com.otkusteyler.capri-pet"
 
 /** Same bridge call as VFX and Focus Bubble. */
 export function callNative(name: string, args: any[] = []): Promise<any> {
