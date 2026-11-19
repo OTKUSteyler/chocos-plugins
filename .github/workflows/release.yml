@@ -48,9 +48,10 @@ jobs:
 
       - name: Build plugins
         if: steps.plan.outputs.count != '0'
-        run: ./gradlew --no-daemon packageAllPlugins
-        env:
-          GITHUB_TOKEN: ${{ secrets.READ_PACKAGES_TOKEN }} # For Gradle to download the API dependency.
+        run: |
+          git clone --depth 1 https://github.com/Valenced/valenced.git "$RUNNER_TEMP/valenced"
+          (cd "$RUNNER_TEMP/valenced" && ./gradlew --no-daemon :core:publishToMavenLocal :android:api:publishToMavenLocal)
+          ./gradlew --no-daemon packageAllPlugins
 
       - name: Publish to the pool
         if: steps.plan.outputs.count != '0'
