@@ -1,171 +1,73 @@
-// Capri Pet for Valenced: a neon cyber-kitten that floats over the app and chases your finger.
-// Port of choccychan's (OTKUSteyler) Capri Pet from chocos-plugins.
+import { watchDiscord } from "./lib/reactions"
+import { DEFAULTS, type CapriStorage } from "./native"
+import Settings from "./ui/pages/Settings"
+import { registerPages } from "./ui/routes"
+import { registerSync, savedSettings, setStorage, syncFromNative, update } from "./ui/state"
+import { CHANGELOG } from "./changelog"
+import { setupChangelog } from "../../../shared/changelog"
+import * as native from "@valenced/modules/native"
+import { reportError, setReporter } from "../../../shared/report"
 
-import type { JsonStorage } from '@valenced/json-storage'
-import { getModules } from '@valenced/modules/finders'
-import { withName, withProps } from '@valenced/modules/finders/filters'
-import { before } from '@valenced/patcher'
-import * as React from 'react'
-import PetOverlay, { PetHost, Safe } from './Pet'
-import { newPet, type PetState, tick } from './pet'
-import { toast } from './toast'
+const DEBUG: boolean = false
 
-// Hosts that wrap the whole app (so touches can be watched and chased), best first,
-// then a fallback that can only draw the pet.
-const FULL_HOSTS = ['AppContainer', 'App']
-const OVERLAY_HOSTS = ['AppToastContainer']
+/** The magic JS method is registered once per session; `alive` makes a stale one inert. */
+let magicRegistered = false
+let alive = false
 
-type Mode = 'full' | 'overlay'
+/**
+ * Capri: a pixel unicorn living on top of Discord. Native (src/main/kotlin) draws it and runs its
+ * behaviour; JS mirrors the settings for the pages and forwards Discord events (lib/reactions.ts).
+ */
+export default plugin<{ jsonStorage: CapriStorage }>({
+	jsonStorage: {
+		load: true,
+		default: DEFAULTS,
+	},
+	start({ jsonStorage, cleanup, plugin }) {
+		// Errors go to Revenge's plugin error list (shared/report.ts), not the log.
+		setReporter(plugin)
+		cleanup(() => setReporter(undefined))
 
-// One shared pet object: the overlay reads it live and `save` writes it to disk.
-const pet: PetState = newPet()
-let storage: JsonStorage<PetState> | undefined
-let saveTimer: ReturnType<typeof setTimeout> | undefined
+		// The changelog: clock icon on the settings page, "What's new" after an update.
+		cleanup(setupChangelog({ plugin, jsonStorage }, CHANGELOG))
+		setStorage(jsonStorage)
 
-const save = () => {
-	if (!storage) return
-	clearTimeout(saveTimer)
-	saveTimer = setTimeout(
-		() => storage?.set({ ...pet, rev: undefined }, true),
-		400,
-	)
-}
+		// Native owns the values; bring the mirror in line, now and whenever Quick Toggles changes one.
+		syncFromNative()
+		cleanup(registerSync("dxckie.capri-pet", syncFromNative))
 
-// The app's components are exported as bare functions, so they can't be patched in place.
-// Instead, every element made from one of them is swapped for a wrapper that draws the pet too.
-const targets = new Map<Function, Mode>()
-const wrappers = new Map<Function, Function>()
-let chosen: Function | undefined
-let bypass = false
-
-function wrapperFor(orig: Function, mode: Mode) {
-	let wrapper = wrappers.get(orig)
-	if (!wrapper) {
-		// Builds the original element without running it through the swap again.
-		const inner = (props: any) => {
-			bypass = true
+		// Native casts a spell and asks here for VFX to show it (VFX's methods are another plugin's).
+		if (!magicRegistered) {
 			try {
-				return React.createElement(orig as any, props)
-			} finally {
-				bypass = false
+				;(native as any).registerJSMethod("dxckie.capri-pet.magic", () => {
+					if (!alive) return
+					// The spell list from settings goes along; VFX picks from what it allows.
+					const { spellMode, spellList } = savedSettings()
+					;(native as any)
+						.callNativeMethod("bleelblep.screen-effects.surprise", [null, { mode: spellMode, list: spellList }])
+						.catch(() => { if (DEBUG) console.warn("[Capri] no magic: VFX isn't running") })
+				})
+				magicRegistered = true
+			} catch (error) {
+				reportError("[Capri] could not register magic:", error)
 			}
 		}
-		wrapper = (props: any) =>
-			mode === 'full'
-				? React.createElement(PetHost, { pet, save }, inner(props))
-				: React.createElement(
-						React.Fragment,
-						null,
-						inner(props),
-						React.createElement(
-							Safe,
-							null,
-							React.createElement(PetOverlay, { pet, save }),
-						),
-					)
-		wrappers.set(orig, wrapper)
-	}
-	return wrapper
-}
-
-// A before-hook on element creation: returns the arguments, with the type swapped for the host.
-const intercept = (args: any[]) => {
-	try {
-		const type = args?.[0]
-		if (bypass || typeof type !== 'function') return args
-		const mode = targets.get(type)
-		if (!mode) return args
-		if (!chosen) {
-			chosen = type
-			toast(`Capri Pet: attached to ${type.name || mode}`)
-		}
-		if (type !== chosen) return args
-		return [wrapperFor(type, mode), ...args.slice(1)]
-	} catch {
-		return args
-	}
-}
-
-/** The component is the module's export itself, or its default export. */
-const componentOf = (exports: any): Function | undefined =>
-	typeof exports === 'function'
-		? exports
-		: typeof exports?.default === 'function'
-			? exports.default
-			: undefined
-
-export default plugin<{ jsonStorage: PetState }>({
-	jsonStorage: { default: newPet(), load: true },
-
-	start(api) {
-		// Swapping the app root only takes effect on the next mount, so enabling mid-session needs a reload.
-		if (api.plugin.startedLate) {
-			toast('Capri Pet: fully restart Discord to show her')
-			api.plugin.requireReload()
-			return
-		}
-
-		storage = api.jsonStorage
-		api.cleanup(() => {
-			clearTimeout(saveTimer)
-			storage = undefined
-			targets.clear()
-			wrappers.clear()
-			chosen = undefined
+		alive = true
+		// Native only calls `magic` once told it's there: a missing JS method is Revenge's error dialog.
+		const magicReady = (ready: boolean) =>
+			(native as any).callNativeMethod("dxckie.capri-pet.magicReady", [ready]).catch(() => {})
+		if (magicRegistered) magicReady(true)
+		cleanup(() => {
+			alive = false
+			if (magicRegistered) magicReady(false)
 		})
 
-		// Load the saved pet and hand it to the already-mounted overlay.
-		api.jsonStorage
-			.get()
-			.then(saved => {
-				Object.assign(pet, saved)
-				tick(pet)
-				pet.rev = (pet.rev ?? 0) + 1
-			})
-			.catch(e => api.plugin.reportError(e))
-
-		toast('Capri Pet: loaded')
-		const found: string[] = []
-		const missing = setTimeout(() => {
-			if (!chosen)
-				toast(
-					`Capri Pet: never saw the app render (found: ${found.join(', ') || 'none'})`,
-				)
-		}, 8000)
-		api.cleanup(() => clearTimeout(missing))
-
-		const hook = (name: string, mode: Mode) => {
-			api.cleanup(
-				getModules(withName<any>(name), exports => {
-					const component = componentOf(exports)
-					if (!component) return
-					found.push(name)
-					targets.set(component, mode)
-				}),
-			)
+		cleanup(registerPages())
+		try {
+			cleanup(watchDiscord())
+		} catch (error) {
+			reportError("[Capri] could not watch Discord events:", error)
 		}
-		for (const n of FULL_HOSTS) hook(n, 'full')
-		for (const n of OVERLAY_HOSTS) hook(n, 'overlay')
-
-		const patch = (obj: any, key: string) => {
-			try {
-				api.cleanup(before(obj, key, intercept))
-			} catch (e) {
-				api.plugin.reportError(e)
-			}
-		}
-		patch(React, 'createElement')
-		api.cleanup(
-			getModules(withProps('jsx', 'jsxs'), (mod: any) => {
-				const runtime = mod?.jsx ? mod : mod?.default
-				for (const key of ['jsx', 'jsxs', 'jsxDEV'])
-					if (typeof runtime?.[key] === 'function') patch(runtime, key)
-			}),
-		)
 	},
-
-	// Unpatching can't remove what Discord already rendered with the pet.
-	stop(api) {
-		api.plugin.requireReload()
-	},
+	SettingsComponent: Settings,
 })

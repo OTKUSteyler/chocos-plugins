@@ -1,23 +1,27 @@
 {
 	"format": 1,
 	"id": "dxckie.capri-pet",
-	"name": "Capri Pet",
-	"description": "A neon cyber-kitten pet that floats on your screen. Drag her, pat her, feed her.",
+	"name": "Capri-Pet",
+	"description": "Capri from Cyberpunk: Edgerunners 2 as a pixel pet that lives on top of Discord. Tap, pet, feed, shake and throw her.",
 	"author": "dxckie (https://github.com/dxckie-cell \"GitHub\")",
 	"contributors": [
-		"choccychan aka btmc727 <554071670143451176> (https://github.com/OTKUSteyler \"GitHub\")"
+		"bleelblep (https://github.com/bleelblep \"GitHub\")"
 	],
-	"icon": "RobotIcon",
-	"version": "1.0.9",
+	"icon": "ReactionIcon",
+	"version": "2.0.0",
 	"dependencies": {
 		"valenced.api": {
-			"version": ">=1 <2"
+			"version": ">=1.0 <2"
 		},
 		"discord": {
 			"version": "*"
 		}
 	},
 	"dist": {
-		"script": "index.js"
+		"script": "index.js",
+		"android": {
+			"path": "plugin.jar",
+			"class": "com.dxckie.capri.CapriPlugin"
+		}
 	}
 }
