@@ -846,7 +846,7 @@
       ],
       "icon": "ReactionIcon",
       "channels": {
-        "latest": "2.0.0"
+        "latest": "2.0.1"
       },
       "versions": {
         "1.0.8": {
@@ -878,6 +878,19 @@
         "2.0.0": {
           "url": "https://otkusteyler.github.io/chocos-plugins/pool/dxckie.capri-pet@2.0.0.zip",
           "sha256": "7fd3662b55c7c1f416869ba5a60413d37db507eb8827d987df5f100a549a44e3",
+          "size": 1600453,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1.0 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "2.0.1": {
+          "url": "https://otkusteyler.github.io/chocos-plugins/pool/dxckie.capri-pet@2.0.1.zip",
+          "sha256": "83d0788818e9e58b7cc4623d49ee0015e65694567c1119bbc9e95c75c72be1ac",
           "size": 1600453,
           "dependencies": {
             "valenced.api": {
