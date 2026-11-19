@@ -10,6 +10,10 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        // The Valenced API built from source by CI (or locally), so no GitHub Packages token is needed.
+        mavenLocal {
+            content { includeGroup("app.valenced") }
+        }
         google()
         mavenCentral()
         // Xposed API (provided by the framework at runtime).
