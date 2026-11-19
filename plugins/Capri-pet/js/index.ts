@@ -34,12 +34,12 @@ export default plugin<{ jsonStorage: CapriStorage }>({
 
 		// Native owns the values; bring the mirror in line, now and whenever Quick Toggles changes one.
 		syncFromNative()
-		cleanup(registerSync("dxckie.capri-pet", syncFromNative))
+		cleanup(registerSync("com.otkusteyler.capri-pet", syncFromNative))
 
 		// Native casts a spell and asks here for VFX to show it (VFX's methods are another plugin's).
 		if (!magicRegistered) {
 			try {
-				;(native as any).registerJSMethod("dxckie.capri-pet.magic", () => {
+				;(native as any).registerJSMethod("com.otkusteyler.capri-pet.magic", () => {
 					if (!alive) return
 					// The spell list from settings goes along; VFX picks from what it allows.
 					const { spellMode, spellList } = savedSettings()
@@ -55,7 +55,7 @@ export default plugin<{ jsonStorage: CapriStorage }>({
 		alive = true
 		// Native only calls `magic` once told it's there: a missing JS method is Revenge's error dialog.
 		const magicReady = (ready: boolean) =>
-			(native as any).callNativeMethod("dxckie.capri-pet.magicReady", [ready]).catch(() => {})
+			(native as any).callNativeMethod("com.otkusteyler.capri-pet.magicReady", [ready]).catch(() => {})
 		if (magicRegistered) magicReady(true)
 		cleanup(() => {
 			alive = false

@@ -1,10 +1,11 @@
 {
 	"format": 1,
-	"id": "dxckie.capri-pet",
+	"id": "com.otkusteyler.capri-pet",
 	"name": "Capri-Pet",
 	"description": "Capri from Cyberpunk: Edgerunners 2 as a pixel pet that lives on top of Discord. Tap, pet, feed, shake and throw her.",
 	"author": "dxckie (https://github.com/dxckie-cell \"GitHub\")",
 	"contributors": [
+		"choccychan aka btmc727 <554071670143451176> (https://github.com/OTKUSteyler \"GitHub\")",
 		"bleelblep (https://github.com/bleelblep \"GitHub\")"
 	],
 	"icon": "ReactionIcon",
