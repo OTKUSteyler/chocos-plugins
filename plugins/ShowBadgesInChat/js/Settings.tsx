@@ -1,5 +1,4 @@
-import { React, ReactNative as RN } from "@valenced/modules/common"
-import { Forms } from "@valenced/ui/components"
+import { Forms, React, ReactNative as RN } from "./valenced"
 
 import type { BadgeKey } from "./badges"
 import { getStorage, move, setShown, subscribe } from "./state"
