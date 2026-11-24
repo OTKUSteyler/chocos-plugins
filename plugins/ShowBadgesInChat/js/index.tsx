@@ -1,10 +1,7 @@
-import { React, ReactNative as RN } from "@valenced/modules/common"
-import { findByName } from "@valenced/modules/finders"
-import { after } from "@valenced/patcher"
-
 import { type Badge, type BadgeKey, getBadgesFor, loadDonorBadges, subscribeBadgeLoad } from "./badges"
 import Settings, { useBadgeSettings } from "./Settings"
 import { type BadgesStorage, DEFAULTS, setStorage } from "./state"
+import { after, findByName, React, ReactNative as RN } from "./valenced"
 import { reportError, setReporter } from "../../../shared/report"
 
 function BadgeRow({ author }: { author: any }) {
