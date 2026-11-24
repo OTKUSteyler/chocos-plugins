@@ -1,65 +1,67 @@
-import { findByName } from "@vendetta/metro";
-import { React, ReactNative as RN } from "@vendetta/metro/common";
-import { after } from "@vendetta/patcher";
-import { storage } from "@vendetta/plugin";
+import { React, ReactNative as RN } from "@valenced/modules/common"
+import { findByName } from "@valenced/modules/finders"
+import { after } from "@valenced/patcher"
 
-import { type Badge, type BadgeKey, getBadgesFor, loadDonorBadges } from "./badges";
-import { initSettings, Settings } from "./Settings";
+import { type Badge, type BadgeKey, getBadgesFor, loadDonorBadges } from "./badges"
+import Settings, { useBadgeSettings } from "./Settings"
+import { type BadgesStorage, DEFAULTS, setStorage } from "./state"
+import { reportError, setReporter } from "../../../shared/report"
 
-const unpatches: (() => void)[] = [];
+function BadgeRow({ author }: { author: any }) {
+	const storage = useBadgeSettings()
+	const badges = getBadgesFor(author, storage.shown)
+	const flat: Badge[] = storage.order.flatMap((k: BadgeKey) => badges[k])
+	if (!flat.length) return null
 
-function BadgeRow({ author }: { author: any; }) {
-    const badges = getBadgesFor(author, storage.shown);
-    const flat: Badge[] = (storage.order as BadgeKey[]).flatMap(k => badges[k]);
-    if (!flat.length) return null;
-
-    return (
-        <RN.View style={{ flexDirection: "row", alignItems: "center", marginLeft: 4 }}>
-            {flat.map((b, i) => (
-                <RN.Image
-                    key={`${b.key}-${i}`}
-                    source={{ uri: b.src }}
-                    accessibilityLabel={b.name}
-                    style={{ width: 16, height: 16, marginRight: 2 }}
-                />
-            ))}
-        </RN.View>
-    );
+	return (
+		<RN.View style={{ flexDirection: "row", alignItems: "center", marginLeft: 4 }}>
+			{flat.map((b, i) => (
+				<RN.Image
+					key={`${b.key}-${i}`}
+					source={{ uri: b.src }}
+					accessibilityLabel={b.name}
+					style={{ width: 16, height: 16, marginRight: 2 }}
+				/>
+			))}
+		</RN.View>
+	)
 }
 
-export default {
-    onLoad() {
-        initSettings();
-        loadDonorBadges();
+/**
+ * ShowBadgesInChat: shows the message author's badges beside their name in chat.
+ * Port of the Vencord/Equicord plugin by Inbestigator & KrystalSkull.
+ */
+export default plugin<{ jsonStorage: BadgesStorage }>({
+	jsonStorage: {
+		load: true,
+		default: DEFAULTS,
+	},
+	start({ jsonStorage, cleanup, plugin }) {
+		setReporter(plugin)
+		cleanup(() => setReporter(undefined))
 
-        // Message header (username row). The exact component name can change between
-        // Discord versions; "MessageHeader" is checked first, with a fallback.
-        const Header =
-            findByName("MessageHeader", false) ??
-            findByName("UserNameTitle", false);
+		setStorage(jsonStorage)
+		loadDonorBadges().catch(error => reportError("[ShowBadgesInChat] could not load donor badges:", error))
 
-        if (!Header) {
-            console.warn("[ShowBadgesInChat] could not find message header component");
-            return;
-        }
+		try {
+			// The component name can change between Discord versions; check the fallback if badges vanish.
+			const Header = findByName("MessageHeader", false) ?? findByName("UserNameTitle", false)
+			if (!Header) throw new Error("message header component not found")
 
-        unpatches.push(
-            after("default", Header, ([props]: any[], ret: any) => {
-                const author = props?.message?.author ?? props?.author;
-                if (!author || !ret?.props) return ret;
+			cleanup(
+				after("default", Header, ([props]: any[], ret: any) => {
+					const author = props?.message?.author ?? props?.author
+					if (!author || !ret?.props) return ret
 
-                const children = ret.props.children;
-                const badge = <BadgeRow author={author} />;
-                ret.props.children = Array.isArray(children) ? [...children, badge] : [children, badge];
-                return ret;
-            })
-        );
-    },
-
-    onUnload() {
-        for (const u of unpatches) u();
-        unpatches.length = 0;
-    },
-
-    settings: Settings,
-};
+					const children = ret.props.children
+					const badge = <BadgeRow author={author} />
+					ret.props.children = Array.isArray(children) ? [...children, badge] : [children, badge]
+					return ret
+				}),
+			)
+		} catch (error) {
+			reportError("[ShowBadgesInChat] could not patch the message header:", error)
+		}
+	},
+	SettingsComponent: Settings,
+})
