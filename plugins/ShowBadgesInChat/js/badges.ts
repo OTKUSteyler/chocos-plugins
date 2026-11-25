@@ -77,7 +77,7 @@ export function getBadgesFor(user: any, enabled: Record<BadgeKey, boolean>): Rec
         }));
     }
     if (enabled.DiscordProfile) {
-        const flags = user.flags ?? user.publicFlags ?? 0;
+        const flags = user.publicFlags ?? user.public_flags ?? user.flags ?? 0;
         out.DiscordProfile = discordBadges
             .filter(b => flags & (1 << b[0]))
             .map(b => ({
@@ -86,10 +86,11 @@ export function getBadgesFor(user: any, enabled: Record<BadgeKey, boolean>): Rec
                 src: `https://cdn.discordapp.com/badge-icons/${b[2]}.png`,
             }));
     }
-    if (enabled.DiscordNitro && (user.premiumType ?? 0) > 0) {
+    const premium = user.premiumType ?? user.premium_type ?? 0;
+    if (enabled.DiscordNitro && premium > 0) {
         out.DiscordNitro = [{
             key: "DiscordNitro",
-            name: "Discord Nitro" + (user.premiumType === 3 ? " Basic" : user.premiumType === 1 ? " Classic" : ""),
+            name: "Discord Nitro" + (premium === 3 ? " Basic" : premium === 1 ? " Classic" : ""),
             src: NITRO_ICON,
         }];
     }
