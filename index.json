@@ -582,6 +582,34 @@
         }
       }
     },
+    "com.otkusteyler.show-badges-in-chat": {
+      "name": "ShowBadgesInChat",
+      "description": "Shows the message author's badges beside their name in chat.",
+      "author": "Inbestigator (https://github.com/Inbestigator \"GitHub\")",
+      "contributors": [
+        "KrystalSkull",
+        "choccychan aka btmc727 <554071670143451176> (https://github.com/OTKUSteyler \"GitHub\")"
+      ],
+      "icon": "ReactionIcon",
+      "channels": {
+        "latest": "1.0.1"
+      },
+      "versions": {
+        "1.0.1": {
+          "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.show-badges-in-chat@1.0.1.zip",
+          "sha256": "45d19d85d6b80ffa02c6fbefd10a273131d445d38b160803bc48abbeb2cf861a",
+          "size": 3456,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1.0 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    },
     "com.valenced.nitro-profiles": {
       "name": "Nitro-Profiles",
       "description": "Displays custom Discord profile banners from UserBG and custom avatars from UserPFP.",
