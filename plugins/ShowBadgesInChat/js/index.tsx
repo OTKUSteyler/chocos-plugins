@@ -1,7 +1,7 @@
 import { type Badge, type BadgeKey, getBadgesFor, loadDonorBadges, subscribeBadgeLoad } from "./badges"
 import Settings, { useBadgeSettings } from "./Settings"
 import { type BadgesStorage, DEFAULTS, setStorage } from "./state"
-import { after, findByName, React, ReactNative as RN } from "./valenced"
+import { getModules, instead, React, ReactNative as RN, withName } from "./valenced"
 import { reportError, setReporter } from "../../../shared/report"
 
 function BadgeRow({ author }: { author: any }) {
@@ -42,13 +42,17 @@ export default plugin<{ jsonStorage: BadgesStorage }>({
 		setStorage(jsonStorage)
 		loadDonorBadges().catch(error => reportError("[ShowBadgesInChat] could not load donor badges:", error))
 
-		try {
-			// The component name can change between Discord versions; check the fallback if badges vanish.
-			const Header = findByName("MessageHeader", false) ?? findByName("UserNameTitle", false)
-			if (!Header) throw new Error("message header component not found")
+		let patched = false
+		const patchHeader = (module: any) => {
+			if (patched) return
+			const Header = module?.default ? module : undefined
+			if (!Header || typeof Header.default !== "function") return
+			patched = true
 
 			cleanup(
-				after("default", Header, ([props]: any[], ret: any) => {
+				instead(Header, "default", (args: any[], original: (...args: any[]) => any) => {
+					const ret = original.apply(Header, args)
+					const props = args[0]
 					const author = props?.message?.author ?? props?.author
 					if (!author || !ret?.props) return ret
 
@@ -57,6 +61,14 @@ export default plugin<{ jsonStorage: BadgesStorage }>({
 					ret.props.children = Array.isArray(children) ? [...children, badge] : [children, badge]
 					return ret
 				}),
+			)
+		}
+
+		try {
+			// These subscriptions wait for the component modules to load and provide a fallback name.
+			cleanup(
+				getModules(withName("MessageHeader"), patchHeader, { returnNamespace: true }),
+				getModules(withName("UserNameTitle"), patchHeader, { returnNamespace: true }),
 			)
 		} catch (error) {
 			reportError("[ShowBadgesInChat] could not patch the message header:", error)
