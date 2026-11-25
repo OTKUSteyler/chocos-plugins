@@ -592,13 +592,26 @@
       ],
       "icon": "ReactionIcon",
       "channels": {
-        "latest": "1.0.1"
+        "latest": "1.0.2"
       },
       "versions": {
         "1.0.1": {
           "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.show-badges-in-chat@1.0.1.zip",
           "sha256": "45d19d85d6b80ffa02c6fbefd10a273131d445d38b160803bc48abbeb2cf861a",
           "size": 3456,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1.0 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.0.2": {
+          "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.show-badges-in-chat@1.0.2.zip",
+          "sha256": "0859e770d9be321c017efb826eff7c8a6dc874b9902ee105cd484c2987d78911",
+          "size": 3585,
           "dependencies": {
             "valenced.api": {
               "version": ">=1.0 <2"
