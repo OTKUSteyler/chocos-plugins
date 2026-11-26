@@ -44,6 +44,13 @@ export default function SettingsComponent({
 							value={settings.global}
 							onValueChange={global => storage.set({ global })}
 						/>
+						<TableSwitchRow
+							icon={<TableRowAssetIcon name="AwardIcon" />}
+							label="Show Global Badges only"
+							subLabel="Skip Discord profile badges and show only the ones from other client mods."
+							value={settings.globalOnly}
+							onValueChange={globalOnly => storage.set({ globalOnly })}
+						/>
 					</TableRowGroup>
 				</Stack>
 			</ScrollView>

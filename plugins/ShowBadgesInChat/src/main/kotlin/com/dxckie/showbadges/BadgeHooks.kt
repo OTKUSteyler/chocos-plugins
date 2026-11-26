@@ -72,6 +72,7 @@ private class FlowRow(context: android.content.Context, val size: Int, private v
 /** A row of badges under a message header. */
 private class BadgeRow(val view: RelativeLayout, val header: View, val text: FlowRow) {
     var messageId: String? = null
+    var shown: List<String> = emptyList()
 }
 
 internal class BadgeHooks(dexFinder: DexFinder) {
@@ -212,16 +213,15 @@ internal class BadgeHooks(dexFinder: DexFinder) {
 
     private fun render(row: BadgeRow) {
         val urls = row.messageId?.let(::badgesOf).orEmpty()
-        row.text.removeAllViews()
-        for (url in urls) {
-            val bitmap = images[url]
-            if (bitmap == null) {
-                load(url)
-                continue
-            }
-            row.text.addView(ImageView(row.view.context).apply { setImageBitmap(bitmap) })
+        val ready = urls.filter { url -> (url in images).also { if (!it) load(url) } }
+        // Discord binds messages again when the list resizes, such as when the keyboard opens.
+        // Rebuilding identical badges would make them flicker
+        if (ready != row.shown) {
+            row.shown = ready
+            row.text.removeAllViews()
+            for (url in ready) row.text.addView(ImageView(row.view.context).apply { setImageBitmap(images[url]) })
         }
-        val show = row.text.childCount > 0
+        val show = ready.isNotEmpty()
         row.text.visibility = if (show) View.VISIBLE else View.GONE
         follow(row, if (show) row.text.id else row.header.id)
     }
