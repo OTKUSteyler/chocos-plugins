@@ -2,15 +2,11 @@ package com.dxckie.showbadges
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.drawable.BitmapDrawable
 import android.os.Handler
 import android.os.Looper
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ImageSpan
 import android.view.View
 import android.view.ViewGroup
-import android.util.TypedValue
+import android.widget.ImageView
 import android.widget.RelativeLayout
 import android.widget.TextView
 import app.valenced.xposed.api.DexFinder
@@ -44,8 +40,37 @@ private class AppendImageArgs(method: Method) {
     }
 }
 
+/** Lays children out left to right, starting a new line when one doesn't fit. */
+private class FlowRow(context: android.content.Context, val size: Int, private val gap: Int) : ViewGroup(context) {
+    private val xs = ArrayList<Int>()
+    private val ys = ArrayList<Int>()
+
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        val width = MeasureSpec.getSize(widthSpec)
+        xs.clear()
+        ys.clear()
+        var x = 0
+        var y = 0
+        for (i in 0 until childCount) {
+            if (x > 0 && x + size > width) {
+                x = 0
+                y += size + gap
+            }
+            getChildAt(i).measure(MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY))
+            xs.add(x)
+            ys.add(y)
+            x += size + gap
+        }
+        setMeasuredDimension(width, if (childCount == 0) 0 else y + size)
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        for (i in 0 until childCount) getChildAt(i).layout(xs[i], ys[i], xs[i] + size, ys[i] + size)
+    }
+}
+
 /** A row of badges under a message header. */
-private class BadgeRow(val view: RelativeLayout, val header: View, val text: TextView) {
+private class BadgeRow(val view: RelativeLayout, val header: View, val text: FlowRow) {
     var messageId: String? = null
 }
 
@@ -155,10 +180,10 @@ internal class BadgeHooks(dexFinder: DexFinder) {
 
     // Under the header, with what was under the header moved under the row
     private fun insertRow(view: RelativeLayout, header: View, name: TextView): BadgeRow {
-        val text = TextView(view.context).apply {
+        val size = (name.textSize * BADGE_SCALE).toInt()
+        val text = FlowRow(view.context, size, size / 8).apply {
             id = View.generateViewId()
             visibility = View.GONE
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, name.textSize * 0.9f)
         }
         val headerParams = header.layoutParams as RelativeLayout.LayoutParams
         view.addView(text, RelativeLayout.LayoutParams(
@@ -187,26 +212,16 @@ internal class BadgeHooks(dexFinder: DexFinder) {
 
     private fun render(row: BadgeRow) {
         val urls = row.messageId?.let(::badgesOf).orEmpty()
-        val text = SpannableStringBuilder()
-        val size = (row.text.textSize * BADGE_SCALE).toInt()
-        val gap = size / 8
+        row.text.removeAllViews()
         for (url in urls) {
             val bitmap = images[url]
             if (bitmap == null) {
                 load(url)
                 continue
             }
-            val start = text.length
-            text.append("\uFFFC")
-            text.setSpan(
-                GapDrawableSpan(BitmapDrawable(row.text.resources, bitmap).apply { setBounds(0, 0, size, size) }, gap),
-                start, start + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-            )
-            // Lines of only spaces never wrap, a zero width space is a place to break
-            text.append("\u200B")
+            row.text.addView(ImageView(row.view.context).apply { setImageBitmap(bitmap) })
         }
-        val show = text.isNotEmpty()
-        row.text.text = text
+        val show = row.text.childCount > 0
         row.text.visibility = if (show) View.VISIBLE else View.GONE
         follow(row, if (show) row.text.id else row.header.id)
     }
@@ -227,14 +242,6 @@ internal class BadgeHooks(dexFinder: DexFinder) {
             }
         }
     }
-}
-
-/** Image span with space after it. */
-private class GapDrawableSpan(drawable: android.graphics.drawable.Drawable, private val gap: Int) :
-    ImageSpan(drawable, ALIGN_BOTTOM) {
-    override fun getSize(
-        paint: android.graphics.Paint, text: CharSequence?, start: Int, end: Int, fm: android.graphics.Paint.FontMetricsInt?,
-    ) = super.getSize(paint, text, start, end, fm) + gap
 }
 
 @Suppress("DiscouragedApi")
