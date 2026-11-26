@@ -197,11 +197,13 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                 continue
             }
             val start = text.length
-            text.append(" ")
+            text.append("\uFFFC")
             text.setSpan(
                 GapDrawableSpan(BitmapDrawable(row.text.resources, bitmap).apply { setBounds(0, 0, size, size) }, gap),
                 start, start + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
             )
+            // Lines of only spaces never wrap, a zero width space is a place to break
+            text.append("\u200B")
         }
         val show = text.isNotEmpty()
         row.text.text = text
