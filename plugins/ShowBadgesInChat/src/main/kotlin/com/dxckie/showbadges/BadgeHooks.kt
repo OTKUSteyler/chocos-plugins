@@ -2,6 +2,9 @@ package com.dxckie.showbadges
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.drawable.AnimatedImageDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.View
@@ -14,6 +17,7 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import org.json.JSONObject
 import java.lang.reflect.Method
+import java.nio.ByteBuffer
 import java.net.URL
 import java.util.WeakHashMap
 import java.util.concurrent.Executors
@@ -25,6 +29,7 @@ private const val MESSAGE = "com.discord.chat.bridge.Message"
 private const val MARKER = "#dxckie.show-badges"
 private const val CACHE_CAPACITY = 2000
 private const val BADGE_SCALE = 1.15f
+private val AnimatedUrl = Regex("\\.(gif|apng|webp)(\\?|#|$)", RegexOption.IGNORE_CASE)
 
 /** Arguments of `TextUtils.appendImage`, found by type (R8 merged it with its `$default` overload). */
 private class AppendImageArgs(method: Method) {
@@ -86,7 +91,12 @@ internal class BadgeHooks(dexFinder: DexFinder) {
     private val images = object : LinkedHashMap<String, Bitmap>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>) = size > 200
     }
+    // Downloaded files, for animated badges, as each view needs its own drawable
+    private val files = object : LinkedHashMap<String, ByteArray>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>) = size > 100
+    }
     private val loading = HashSet<String>()
+    private var animate = false
     private val io = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var ids: ViewIds? = null
@@ -219,25 +229,56 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         if (ready != row.shown) {
             row.shown = ready
             row.text.removeAllViews()
-            for (url in ready) row.text.addView(ImageView(row.view.context).apply { setImageBitmap(images[url]) })
+            for (url in ready) row.text.addView(badgeView(row.view, url))
         }
         val show = ready.isNotEmpty()
         row.text.visibility = if (show) View.VISIBLE else View.GONE
         follow(row, if (show) row.text.id else row.header.id)
     }
 
+    private fun badgeView(parent: View, url: String) = ImageView(parent.context).apply {
+        val animated = if (animate && Build.VERSION.SDK_INT >= 28 && AnimatedUrl.containsMatchIn(url)) animatedDrawable(url) else null
+        if (animated == null) {
+            setImageBitmap(images[url])
+        } else {
+            setImageDrawable(animated)
+            animated.start()
+        }
+    }
+
+    private fun animatedDrawable(url: String): AnimatedImageDrawable? = try {
+        val bytes = files[url] ?: return null
+        (ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) as? AnimatedImageDrawable)
+            ?.apply { repeatCount = AnimatedImageDrawable.REPEAT_INFINITE }
+    } catch (_: Throwable) {
+        null
+    }
+
+    fun setAnimate(enabled: Boolean) {
+        mainHandler.post {
+            if (animate == enabled) return@post
+            animate = enabled
+            for (row in rows.values) {
+                row.shown = emptyList()
+                render(row)
+            }
+        }
+    }
+
     private fun load(url: String) {
         if (!loading.add(url)) return
         io.execute {
-            val bitmap = try {
-                URL(url).openStream().use(BitmapFactory::decodeStream)
+            val bytes = try {
+                URL(url).openStream().use { it.readBytes() }
             } catch (_: Throwable) {
                 null
             }
+            val bitmap = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
             mainHandler.post {
                 loading.remove(url)
-                if (bitmap == null) return@post
+                if (bitmap == null || bytes == null) return@post
                 images[url] = bitmap
+                files[url] = bytes
                 for (row in rows.values) if (url in row.messageId?.let(::badgesOf).orEmpty()) render(row)
             }
         }

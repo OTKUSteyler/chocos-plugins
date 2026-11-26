@@ -3,6 +3,7 @@ export interface Settings {
 	username: boolean
 	global: boolean
 	globalOnly: boolean
+	animate: boolean
 }
 
 export const DefaultSettings: Settings = {
@@ -10,4 +11,5 @@ export const DefaultSettings: Settings = {
 	username: true,
 	global: true,
 	globalOnly: false,
+	animate: false,
 }

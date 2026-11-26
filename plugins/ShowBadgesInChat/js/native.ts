@@ -8,6 +8,10 @@ export function putBadges(badges: MessageBadges) {
 	callNativeMethodSync('dxckie.badges.put', [JSON.stringify(badges)])
 }
 
+export function setAnimate(enabled: boolean) {
+	callNativeMethodSync('dxckie.badges.animate', [enabled ? '1' : '0'])
+}
+
 export function clearBadges() {
 	callNativeMethodSync('dxckie.badges.clear', [])
 }
@@ -15,6 +19,7 @@ export function clearBadges() {
 declare module '@valenced/modules/native' {
 	interface NativeMethods {
 		'dxckie.badges.put': [[json: string], null]
+		'dxckie.badges.animate': [[enabled: string], null]
 		'dxckie.badges.clear': [[], null]
 	}
 }

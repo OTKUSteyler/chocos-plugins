@@ -3,7 +3,7 @@ import { getModules, lookupModule } from '@valenced/modules/finders'
 import { withName, withProps } from '@valenced/modules/finders/filters'
 import { after } from '@valenced/patcher'
 import { getErrorStack } from '@valenced/utils/error'
-import { clearBadges, putBadges } from './native'
+import { clearBadges, putBadges, setAnimate } from './native'
 import SettingsComponent from './settings'
 import { DefaultSettings } from './shared'
 import type { Settings } from './shared'
@@ -292,6 +292,7 @@ export default plugin<{ jsonStorage: Settings }>({
 		active = true
 		const sync = () => {
 			settings = { ...DefaultSettings, ...storage.cache }
+			setAnimate(settings.animate)
 			// Badges are rebuilt under the new settings, and shown messages redrawn
 			const ids = [...cache.keys()]
 			cache.clear()
@@ -299,6 +300,7 @@ export default plugin<{ jsonStorage: Settings }>({
 			for (const id of ids) redraw(id)
 		}
 		settings = { ...DefaultSettings, ...storage.cache }
+		setAnimate(settings.animate)
 		cleanup(storage.subscribe(sync))
 		cleanup(() => {
 			clearBadges()
