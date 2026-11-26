@@ -167,12 +167,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                 start, start + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
             )
         }
-        if (text.toString() != name.text.toString()) {
-            // Let the badges wrap onto another line instead of being cut off with "..."
-            name.ellipsize = null
-            name.maxLines = Int.MAX_VALUE
-            name.text = text
-        }
+        if (text.toString() != name.text.toString()) name.text = text
     }
 
     private fun removeBadges(text: SpannableStringBuilder) {
