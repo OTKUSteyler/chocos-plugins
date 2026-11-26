@@ -1,13 +1,63 @@
 import Page from '@valenced/components/Page'
 import TableRowAssetIcon from '@valenced/components/TableRowAssetIcon'
 import { Design } from '@valenced/discord/design'
-import { ScrollView } from 'react-native'
+import { Image, ScrollView, View } from 'react-native'
 import { DefaultSettings } from './shared'
 import type { PluginSettingsComponent } from '@valenced/plugins/types'
 import type { ComponentProps } from 'react'
 import type { Settings } from './shared'
 
-const { Stack, TableRowGroup, TableSwitchRow } = Design
+const { Stack, TableRowGroup, TableSwitchRow, Text } = Design
+
+// Sample Discord badges, only for the preview
+const Sample = [
+	'6bdc42827a38498929a4920da12695d9',
+	'7060786766c9c840eb3019e725d2b358',
+	'8a88d63823d8a71cd5e390baa45efa02',
+].map(icon => `https://cdn.discordapp.com/badge-icons/${icon}.png`)
+
+function Badges() {
+	return (
+		<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 3 }}>
+			{Sample.map(uri => (
+				<Image key={uri} source={{ uri }} style={{ width: 18, height: 18 }} />
+			))}
+		</View>
+	)
+}
+
+function Preview({ ping, username }: { ping: boolean; username: boolean }) {
+	return (
+		<Stack spacing={8}>
+			<Text variant="text-sm/semibold" color="text-muted">
+				Preview
+			</Text>
+			<View
+				style={{
+					padding: 12,
+					gap: 4,
+					borderRadius: 12,
+					borderWidth: 1,
+					borderColor: 'rgba(128,128,128,0.4)',
+				}}
+			>
+				<Text variant="text-md/semibold" color="text-normal">
+					duckie
+				</Text>
+				{username && <Badges />}
+				<View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+					<Text variant="text-md/normal" color="text-normal">
+						hey
+					</Text>
+					<Text variant="text-md/semibold" color="text-link">
+						@duckie
+					</Text>
+					{ping && <Badges />}
+				</View>
+			</View>
+		</Stack>
+	)
+}
 
 type Props = ComponentProps<PluginSettingsComponent<{ jsonStorage: Settings }>>
 
@@ -20,6 +70,7 @@ export default function SettingsComponent({
 		<Page>
 			<ScrollView>
 				<Stack spacing={24}>
+					<Preview ping={settings.ping} username={settings.username} />
 					<TableRowGroup title="Where to show badges">
 						<TableSwitchRow
 							icon={<TableRowAssetIcon name="AtIcon" />}
