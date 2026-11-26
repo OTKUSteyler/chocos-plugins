@@ -5,7 +5,7 @@
 	"description": "Shows a user's profile badges, from their profile and other client mods, beside their mentions and usernames in chat.",
 	"author": "dxckie <772390964471791630> (https://github.com/dxckie-cell \"GitHub\")",
 	"icon": "AwardIcon",
-	"version": "2.1.2",
+	"version": "2.1.3",
 	"dependencies": {
 		"valenced.api": {
 			"version": ">=1 <2"
