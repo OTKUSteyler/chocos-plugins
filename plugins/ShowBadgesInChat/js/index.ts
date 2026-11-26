@@ -164,19 +164,22 @@ async function drain() {
 			queue.delete(userId)
 			const before = cache.get(userId)?.uris.join()
 
-			if (settings.global) await loadGlobal()
+			const useGlobal = settings.global || settings.globalOnly
+			if (useGlobal) await loadGlobal()
 			let uris: string[] = []
 			try {
+				if (settings.globalOnly) throw 0
 				http ??= lookupModule(withProps('HTTP', 'post'))[0] as Http | undefined
 				const { body } = await http!.HTTP.get({
 					url: `/users/${userId}/profile?with_mutual_guilds=false&with_mutual_friends_count=false`,
 				})
 				uris = toUris(body)
 			} catch {
-				// Cached empty so a failing profile isn't retried until the TTL ends
+				// Cached empty so a failing profile isn't retried until the TTL ends,
+				// and skipped when only Global Badges are wanted
 			}
 
-			if (settings.global) uris = [...new Set([...uris, ...globalUris(userId)])]
+			if (useGlobal) uris = [...new Set([...uris, ...globalUris(userId)])]
 			cache.delete(userId)
 			cache.set(userId, {
 				at: Date.now(),
