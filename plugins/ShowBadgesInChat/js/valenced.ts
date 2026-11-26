@@ -1,6 +1,0 @@
-export { React } from "@valenced/react"
-export * as ReactNative from "react-native"
-export { getModules } from "@valenced/modules/finders"
-export { withName } from "@valenced/modules/finders/filters"
-export { instead } from "@valenced/patcher"
-export { default as FormSwitch } from "@valenced/components/FormSwitch"

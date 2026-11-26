@@ -2,23 +2,26 @@
 	"format": 1,
 	"id": "com.otkusteyler.show-badges-in-chat",
 	"name": "ShowBadgesInChat",
-	"description": "Shows the message author's badges beside their name in chat.",
-	"author": "Inbestigator (https://github.com/Inbestigator \"GitHub\")",
-	"contributors": [
-		"KrystalSkull",
-		"choccychan aka btmc727 <554071670143451176> (https://github.com/OTKUSteyler \"GitHub\")"
-	],
-	"icon": "ReactionIcon",
-	"version": "1.0.2",
+	"description": "Shows a user's profile badges, from their profile and other client mods, beside their mentions and usernames in chat.",
+	"author": "dxckie <772390964471791630> (https://github.com/dxckie-cell \"GitHub\")",
+	"icon": "AwardIcon",
+	"version": "2.1.2",
 	"dependencies": {
 		"valenced.api": {
-			"version": ">=1.0 <2"
+			"version": ">=1 <2"
 		},
 		"discord": {
-			"version": "*"
+			"version": ">=350.2"
 		}
 	},
 	"dist": {
-		"script": "index.js"
-	}
+		"script": "index.js",
+		"android": {
+			"path": "plugin.jar",
+			"class": "com.dxckie.showbadges.ShowBadges"
+		}
+	},
+	"contributors": [
+		"choccychan aka btmc727 <554071670143451176> (https://github.com/OTKUSteyler \"GitHub\")"
+	]
 }
