@@ -10,6 +10,7 @@ import android.text.Spanned
 import android.text.style.ImageSpan
 import android.view.View
 import android.view.ViewGroup
+import android.util.TypedValue
 import android.widget.RelativeLayout
 import android.widget.TextView
 import app.valenced.xposed.api.DexFinder
@@ -43,14 +44,19 @@ private class AppendImageArgs(method: Method) {
     }
 }
 
+/** A row of badges under a message header. */
+private class BadgeRow(val view: RelativeLayout, val header: View, val text: TextView) {
+    var messageId: String? = null
+}
+
 internal class BadgeHooks(dexFinder: DexFinder) {
     // message id -> badge icon URLs
     private val badges = object : LinkedHashMap<String, List<String>>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>) = size > CACHE_CAPACITY
     }
 
-    // Main thread only: header views showing a message, with its id
-    private val shown = WeakHashMap<TextView, String>()
+    // Main thread only
+    private val rows = WeakHashMap<RelativeLayout, BadgeRow>()
     private val images = object : LinkedHashMap<String, Bitmap>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>) = size > 200
     }
@@ -94,12 +100,14 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                         val view = param.thisObject as RelativeLayout
                         val id = messageIdField.get(param.args[0]) as String
                         val ids = ids ?: ViewIds(view).also { ids = it }
-                        val header = view.childWithId(ids.header) as? ViewGroup ?: return
+                        val header = view.childWithId(ids.header) ?: return
                         val name = header.findViewById<View>(ids.authorName) as? TextView ?: return
                         // Only messages that start a group show their author
-                        if (name.visibility != View.VISIBLE) return
-                        shown[name] = id
-                        apply(name, id)
+                        val shows = name.visibility == View.VISIBLE
+                        val row = rows[view]
+                            ?: if (shows && !badgesOf(id).isNullOrEmpty()) insertRow(view, header, name) else return
+                        row.messageId = id.takeIf { shows }
+                        render(row)
                     } catch (e: Throwable) {
                         XposedBridge.log("ShowBadges: header hook failed: $e")
                     }
@@ -113,6 +121,8 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         val authorName = view.idOf("author_name")
     }
 
+    private fun badgesOf(id: String) = synchronized(badges) { badges[id] }
+
     fun put(json: String) {
         val updates = JSONObject(json).let { obj ->
             obj.keys().asSequence().associateWith { key ->
@@ -121,7 +131,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         }
         synchronized(badges) { badges.putAll(updates) }
         mainHandler.post {
-            for ((name, id) in shown) if (id in updates) apply(name, id)
+            for (row in rows.values) if (row.messageId in updates) render(row)
         }
     }
 
@@ -134,26 +144,52 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         io.shutdownNow()
         synchronized(badges) { badges.clear() }
         mainHandler.post {
-            for (name in shown.keys) strip(name)
-            shown.clear()
+            for (row in rows.values) {
+                follow(row, row.header.id)
+                row.view.removeView(row.text)
+            }
+            rows.clear()
             images.clear()
         }
     }
 
-    // Main thread. Badges are appended to the name's text, which Discord sets again on every bind
-    private fun apply(name: TextView, id: String) {
-        val urls = synchronized(badges) { badges[id] }.orEmpty()
-        // The common case: nothing to show and nothing of ours to remove
-        if (urls.isEmpty() && (name.text as? Spanned)?.getSpans(0, name.text.length, GapDrawableSpan::class.java).isNullOrEmpty()) return
-        val text = SpannableStringBuilder(name.text)
-        removeBadges(text)
-        if (urls.isEmpty()) {
-            if (text.length != name.text.length) name.text = text
-            return
+    // Under the header, with what was under the header moved under the row
+    private fun insertRow(view: RelativeLayout, header: View, name: TextView): BadgeRow {
+        val text = TextView(view.context).apply {
+            id = View.generateViewId()
+            visibility = View.GONE
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, name.textSize * 0.9f)
         }
+        val headerParams = header.layoutParams as RelativeLayout.LayoutParams
+        view.addView(text, RelativeLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            addRule(RelativeLayout.BELOW, header.id)
+            marginStart = headerParams.marginStart
+        })
+        return BadgeRow(view, header, text).also { rows[view] = it }
+    }
 
-        val size = (name.textSize * BADGE_SCALE).toInt()
-        val gap = size / 12
+    // Discord's own views can sit under the header, and the row has to push them down
+    private fun follow(row: BadgeRow, anchor: Int) {
+        val from = if (anchor == row.text.id) row.header.id else row.text.id
+        for (i in 0 until row.view.childCount) {
+            val child = row.view.getChildAt(i)
+            if (child === row.text) continue
+            val params = child.layoutParams as? RelativeLayout.LayoutParams ?: continue
+            if (params.rules[RelativeLayout.BELOW] == from) {
+                params.addRule(RelativeLayout.BELOW, anchor)
+                child.layoutParams = params
+            }
+        }
+    }
+
+    private fun render(row: BadgeRow) {
+        val urls = row.messageId?.let(::badgesOf).orEmpty()
+        val text = SpannableStringBuilder()
+        val size = (row.text.textSize * BADGE_SCALE).toInt()
+        val gap = size / 8
         for (url in urls) {
             val bitmap = images[url]
             if (bitmap == null) {
@@ -163,26 +199,14 @@ internal class BadgeHooks(dexFinder: DexFinder) {
             val start = text.length
             text.append(" ")
             text.setSpan(
-                GapDrawableSpan(BitmapDrawable(name.resources, bitmap).apply { setBounds(0, 0, size, size) }, gap),
+                GapDrawableSpan(BitmapDrawable(row.text.resources, bitmap).apply { setBounds(0, 0, size, size) }, gap),
                 start, start + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
             )
         }
-        if (text.toString() != name.text.toString()) name.text = text
-    }
-
-    private fun removeBadges(text: SpannableStringBuilder) {
-        for (span in text.getSpans(0, text.length, GapDrawableSpan::class.java).reversed()) {
-            val start = text.getSpanStart(span)
-            val end = text.getSpanEnd(span)
-            text.removeSpan(span)
-            text.delete(start, end)
-        }
-    }
-
-    private fun strip(name: TextView) {
-        val text = SpannableStringBuilder(name.text)
-        removeBadges(text)
-        name.text = text
+        val show = text.isNotEmpty()
+        row.text.text = text
+        row.text.visibility = if (show) View.VISIBLE else View.GONE
+        follow(row, if (show) row.text.id else row.header.id)
     }
 
     private fun load(url: String) {
@@ -197,7 +221,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                 loading.remove(url)
                 if (bitmap == null) return@post
                 images[url] = bitmap
-                for ((name, id) in shown) if (url in synchronized(badges) { badges[id] }.orEmpty()) apply(name, id)
+                for (row in rows.values) if (url in row.messageId?.let(::badgesOf).orEmpty()) render(row)
             }
         }
     }

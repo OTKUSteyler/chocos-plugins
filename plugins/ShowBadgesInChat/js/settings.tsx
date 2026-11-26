@@ -31,7 +31,7 @@ export default function SettingsComponent({
 						<TableSwitchRow
 							icon={<TableRowAssetIcon name="UserIcon" />}
 							label="Beside usernames"
-							subLabel="Badges after the author's name in message headers."
+							subLabel="Badges on a row under the author name in message headers."
 							value={settings.username}
 							onValueChange={username => storage.set({ username })}
 						/>
