@@ -38,6 +38,7 @@ private const val SWEEP_MS = 300L
 private const val OFFSCREEN_MS = 700L
 private const val MARKER = "#dxckie.show-badges"
 private const val CACHE_CAPACITY = 2000
+private const val MAX_BITMAP = 128
 private const val BADGE_SCALE = 1.15f
 private val AnimatedUrl = Regex("\\.(gif|apng|webp)(\\?|#|$)", RegexOption.IGNORE_CASE)
 
@@ -135,59 +136,29 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     // Badges that are no longer drawn are off screen: stop them, they restart when drawn again
     @Volatile private var paused = false
     private var chat: java.lang.ref.WeakReference<View>? = null
-    private var chatLogged = false
-
-    private var lastSeen = "?"
-    private var seenLogs = 0
 
     // A profile, sheet or other screen opened over the chat: the chat is still drawn behind it.
-    // Class names are minified, so look for big visible views drawn after the chat in any of its ancestors.
+    // Class names are minified, so look for a big visible view drawn after the chat in any of its ancestors.
     private fun chatCovered(): String? {
         val view = chat?.get() ?: return null
         if (!view.isAttachedToWindow) return null
         if (!view.hasWindowFocus()) return "another window has focus"
         val root = view.rootView
-        val width = root.width
-        val height = root.height
-        val seen = StringBuilder()
-        var cover: String? = null
         var child: View = view
         while (true) {
-            val parent = child.parent as? ViewGroup ?: break
+            val parent = child.parent as? ViewGroup ?: return null
             for (i in parent.indexOfChild(child) + 1 until parent.childCount) {
                 val sibling = parent.getChildAt(i)
-                val children = (sibling as? ViewGroup)?.childCount ?: 0
-                if (sibling.visibility != View.VISIBLE || sibling.alpha <= 0f || children == 0) continue
-                if (sibling.width < width / 5 || sibling.height < height / 5) continue
-                val text = "${sibling.javaClass.simpleName} ${sibling.width}x${sibling.height} alpha=${sibling.alpha}"
-                seen.append(text).append("; ")
-                if (cover == null && sibling.width >= width * 0.9 && sibling.height >= height * 0.4) cover = text
+                if (sibling.visibility == View.VISIBLE && sibling.alpha > 0f && sibling is ViewGroup && sibling.childCount > 0 &&
+                    sibling.width >= root.width * 0.9 && sibling.height >= root.height * 0.4
+                ) return "a full-screen view is open over the chat"
             }
             child = parent
         }
-        // Shows what is drawn over the chat, to tune the check if it guesses wrong
-        if (seen.toString() != lastSeen && seenLogs++ < 30) {
-            lastSeen = seen.toString()
-            log("over the chat (screen ${width}x$height): ${lastSeen.ifEmpty { "nothing" }}")
-        }
-        return cover?.let { "covered by $it" }
-    }
-
-    private fun logChatChain() {
-        if (chatLogged) return
-        chatLogged = true
-        val names = ArrayList<String>()
-        var p = chat?.get()?.parent
-        while (p != null && names.size < 14) {
-            names += p.javaClass.simpleName
-            p = p.parent
-        }
-        log("chat view parents: ${names.joinToString(" > ")}")
     }
 
     private fun sweep() {
         val now = android.os.SystemClock.uptimeMillis()
-        logChatChain()
         val covered = chatCovered()
         if (covered != null && !paused) {
             paused = true
@@ -365,10 +336,6 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
             }
             type = type.superclass
         }
-        if (walks < 3 && depth == 0) {
-            walks++
-            log("no Animatable yet in ${drawable.javaClass.name}")
-        }
         return null
     }
 
@@ -520,6 +487,15 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
         }
     }
 
+    // Badges are drawn at about 20dp, so big source images are decoded smaller
+    private fun decode(bytes: ByteArray): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= MAX_BITMAP) sample *= 2
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+
     private fun load(url: String) {
         if (!loading.add(url)) return
         io.execute {
@@ -528,12 +504,12 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
             } catch (_: Throwable) {
                 null
             }
-            val bitmap = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+            val bitmap = bytes?.let(::decode)
             mainHandler.post {
                 loading.remove(url)
                 if (bitmap == null || bytes == null) return@post
                 images[url] = bitmap
-                files[url] = bytes
+                if (AnimatedUrl.containsMatchIn(url)) files[url] = bytes
                 for (row in rows.values) if (url in row.messageId?.let(::badgesOf).orEmpty()) render(row)
             }
         }
