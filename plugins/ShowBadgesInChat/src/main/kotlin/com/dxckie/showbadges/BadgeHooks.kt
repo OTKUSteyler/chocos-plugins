@@ -137,7 +137,7 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     private var chat: java.lang.ref.WeakReference<View>? = null
     private var chatLogged = false
 
-    private var lastSeen = ""
+    private var lastSeen = "?"
     private var seenLogs = 0
 
     // A profile, sheet or other screen opened over the chat: the chat is still drawn behind it.
