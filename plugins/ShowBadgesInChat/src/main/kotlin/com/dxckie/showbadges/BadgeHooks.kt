@@ -124,6 +124,8 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     }
     // Animated ping icons, so their drawables can be started when drawn. Used on the main thread and in appendImage
     private val animatedSpans = WeakHashMap<ReplacementSpan, Boolean>()
+    // Found once per span: looking through the drawables on every frame made chat lag
+    private val running = WeakHashMap<ReplacementSpan, Animatable>()
     private var drawUnhook: XC_MethodHook.Unhook? = null
     private val io = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -214,8 +216,10 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
                     try {
                         val span = param.thisObject as ReplacementSpan
                         if (!animate || synchronized(animatedSpans) { animatedSpans[span] } != true) return
+                        if (running[span]?.isRunning == true) return
                         val drawable = drawableOf(span) ?: return
                         val animatable = findAnimatable(drawable, 0, java.util.IdentityHashMap()) ?: return
+                        running[span] = animatable
                         if (!animatable.isRunning) {
                             animatable.start()
                             if (started++ < 5) log("started ${animatable.javaClass.name}")
