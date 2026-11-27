@@ -208,7 +208,7 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
         if ((alive || paused) && animate) mainHandler.postDelayed(::sweep, SWEEP_MS) else sweeping = false
     }
     private var drawUnhook: XC_MethodHook.Unhook? = null
-    private val io = Executors.newFixedThreadPool(2)
+    private val io = Executors.newFixedThreadPool(6)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var ids: ViewIds? = null
 
@@ -388,6 +388,8 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
         }
         synchronized(badges) { badges.putAll(updates) }
         mainHandler.post {
+            // Start loading before the rows are bound, so the badges are ready when they are
+            for (url in updates.values.flatten().toSet()) if (url !in images) load(url)
             for (row in rows.values) if (row.messageId in updates) render(row)
         }
     }
@@ -488,11 +490,41 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
         }
     }
 
+    // Survives restarts, so badges show right when Discord opens instead of after downloading
+    private val cacheDir: java.io.File? by lazy {
+        try {
+            val app = Class.forName("android.app.ActivityThread").getMethod("currentApplication").invoke(null) as android.app.Application
+            java.io.File(app.cacheDir, "show-badges").apply { mkdirs() }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun cacheFile(url: String) = cacheDir?.let {
+        java.io.File(it, java.security.MessageDigest.getInstance("SHA-1").digest(url.toByteArray()).joinToString("") { b -> "%02x".format(b) })
+    }
+
+    private fun readDisk(url: String): ByteArray? = try {
+        cacheFile(url)?.takeIf { it.length() > 0 }?.readBytes()
+    } catch (_: Throwable) {
+        null
+    }
+
+    private fun writeDisk(url: String, bytes: ByteArray) {
+        try {
+            val file = cacheFile(url) ?: return
+            val temp = java.io.File(file.path + ".tmp")
+            temp.writeBytes(bytes)
+            temp.renameTo(file)
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun load(url: String) {
         if (!loading.add(url)) return
         io.execute {
             val bytes = try {
-                URL(url).openStream().use { it.readBytes() }
+                readDisk(url) ?: URL(url).openStream().use { it.readBytes() }.also { writeDisk(url, it) }
             } catch (_: Throwable) {
                 null
             }
