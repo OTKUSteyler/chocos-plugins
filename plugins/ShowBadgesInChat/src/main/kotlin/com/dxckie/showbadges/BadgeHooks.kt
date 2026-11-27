@@ -3,7 +3,13 @@ package com.dxckie.showbadges
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Animatable
+import android.graphics.drawable.Drawable
+import android.text.SpannableStringBuilder
+import android.text.style.ReplacementSpan
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -24,9 +30,9 @@ import java.util.concurrent.Executors
 
 private const val MESSAGE_VIEW = "com.discord.chat.presentation.message.MessageView"
 private const val MESSAGE = "com.discord.chat.bridge.Message"
-private const val FRESCO_BUILDER = "com.facebook.drawee.controller.AbstractDraweeControllerBuilder"
 
 // JS appends this to badge icon URLs so the image hook knows which icons are ours
+private const val ANIMATED = "dxckie.show-badges.animated"
 private const val MARKER = "#dxckie.show-badges"
 private const val CACHE_CAPACITY = 2000
 private const val BADGE_SCALE = 1.15f
@@ -100,7 +106,8 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     @Volatile private var animate = false
     private val logLines = ArrayDeque<String>()
     private var pings = 0
-    private var autoplayed = 0
+    private var started = 0
+    private var walks = 0
     private var puts = 0
 
     fun log(line: String) {
@@ -113,10 +120,11 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     }
 
     fun dumpLog(): String = synchronized(logLines) {
-        "animate=$animate pings(marker seen)=$pings builds with autoplay=$autoplayed puts=$puts\n" + logLines.joinToString("\n")
+        "animate=$animate pings(marker seen)=$pings animations started=$started puts=$puts\n" + logLines.joinToString("\n")
     }
-    // Set while one of our icons is being appended, so Fresco's builder plays its animation
-    private val autoplay = ThreadLocal<Boolean>()
+    // Animated ping icons, so their drawables can be started when drawn. Used on the main thread and in appendImage
+    private val animatedSpans = WeakHashMap<ReplacementSpan, Boolean>()
+    private var drawUnhook: XC_MethodHook.Unhook? = null
     private val io = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var ids: ViewIds? = null
@@ -141,7 +149,6 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
 
         log("hooks: appendImage=${appendImage.declaringClass.name}.${appendImage.name} setMessage=${setMessage.name}")
         unhooks = listOfNotNull(
-            animatedImages(dexFinder),
             // Discord rounds inline images by default, which cuts off the quest badge
             XposedBridge.hookMethod(appendImage, object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
@@ -150,12 +157,23 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
                     if (index < 0) return
                     param.args[args.url] = url.substring(0, index)
                     args.clearCornerRadius(param.args)
-                    if (animate) autoplay.set(true)
+                    if (animate && AnimatedUrl.containsMatchIn(url.substring(0, index))) param.setObjectExtra(ANIMATED, true)
                     if (pings++ < 5) log("ping badge image: animate=$animate thread=${Thread.currentThread().name} url=${url.substring(0, index).takeLast(60)}")
                 }
 
                 override fun afterHookedMethod(param: MethodHookParam) {
-                    autoplay.remove()
+                    if (param.getObjectExtra(ANIMATED) != true) return
+                    try {
+                        // The image is the last character appended
+                        val builder = param.args[0] as SpannableStringBuilder
+                        val end = builder.length
+                        for (span in builder.getSpans(end - 1, end, ReplacementSpan::class.java)) {
+                            synchronized(animatedSpans) { animatedSpans[span] = true }
+                            hookDraw(span.javaClass)
+                        }
+                    } catch (e: Throwable) {
+                        log("ping animation setup failed: $e")
+                    }
                 }
             }),
             XposedBridge.hookMethod(setMessage, object : XC_MethodHook() {
@@ -180,58 +198,78 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
         )
     }
 
-    private fun sig(m: java.lang.reflect.Method) =
-        "${m.name}(${m.parameterTypes.joinToString { it.simpleName }}):${m.returnType.simpleName}"
-
-    private fun loadOrNull(name: String): Class<*>? = try {
-        dexFinder.classLoader.loadClass(name)
-    } catch (_: Throwable) {
-        null
+    // Fresco only starts animated images when told to, and its classes are mostly stripped from Discord.
+    // So start the Animatable inside the image span's drawable when the span is drawn.
+    private fun hookDraw(spanClass: Class<*>) {
+        synchronized(this) {
+            if (drawUnhook != null) return
+            val int = Int::class.javaPrimitiveType
+            val draw = spanClass.getDeclaredMethod(
+                "draw", Canvas::class.java, CharSequence::class.java, int, int, Float::class.javaPrimitiveType, int, int, int,
+                Paint::class.java,
+            )
+            log("hooking ${spanClass.name}.draw")
+            drawUnhook = XposedBridge.hookMethod(draw, object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    try {
+                        val span = param.thisObject as ReplacementSpan
+                        if (!animate || synchronized(animatedSpans) { animatedSpans[span] } != true) return
+                        val drawable = drawableOf(span) ?: return
+                        val animatable = findAnimatable(drawable, 0, java.util.IdentityHashMap()) ?: return
+                        if (!animatable.isRunning) {
+                            animatable.start()
+                            if (started++ < 5) log("started ${animatable.javaClass.name}")
+                        }
+                    } catch (e: Throwable) {
+                        if (walks++ < 5) log("ping animation failed: $e")
+                    }
+                }
+            })
+        }
     }
 
-    // Experimental: pings' icons are Fresco images, which show a still frame unless the controller autoplays.
-    // Discord's build strips or renames Fresco classes, so find the builder class from what is present.
-    private fun animatedImages(dexFinder: DexFinder): XC_MethodHook.Unhook? = try {
-        val candidates = listOf(
-            FRESCO_BUILDER,
-            "com.facebook.drawee.backends.pipeline.PipelineDraweeControllerBuilder",
-            "com.facebook.drawee.span.DraweeSpanStringBuilder",
-            "com.facebook.drawee.span.SimpleDraweeSpanTextView",
-            "com.facebook.drawee.backends.pipeline.Fresco",
-        )
-        for (name in candidates) log("class $name: ${if (loadOrNull(name) != null) "present" else "missing"}")
+    private val drawableFields = HashMap<Class<*>, java.lang.reflect.Field?>()
 
-        // The span builder holds the controller builder it uses for every inline image
-        val spans = loadOrNull("com.facebook.drawee.span.DraweeSpanStringBuilder")
-        spans?.declaredMethods?.take(40)?.forEach { log("DraweeSpanStringBuilder.${sig(it)}") }
-        spans?.declaredFields?.forEach { log("DraweeSpanStringBuilder field ${it.name}: ${it.type.name}") }
-        val builder = loadOrNull(FRESCO_BUILDER)
-            ?: loadOrNull("com.facebook.drawee.backends.pipeline.PipelineDraweeControllerBuilder")
-            ?: spans?.declaredFields?.map { it.type }?.firstOrNull { it.name.contains("ControllerBuilder") }
-            ?: error("no controller builder class found")
-        log("controller builder: ${builder.name} super=${builder.superclass?.name}")
-        generateSequence<Class<*>>(builder) { it.superclass }.forEach { c ->
-            c.declaredMethods.filter { it.parameterTypes.size <= 1 && (it.name.startsWith("set") || it.name == "build") }
-                .take(30).forEach { log("  ${c.simpleName}.${sig(it)}") }
-        }
-        val setAutoPlay = generateSequence<Class<*>>(builder) { it.superclass }
-            .flatMap { it.declaredMethods.asSequence() }
-            .firstOrNull { it.name == "setAutoPlayAnimations" }
-            ?.apply { isAccessible = true } ?: error("setAutoPlayAnimations not found")
-        val build = generateSequence<Class<*>>(builder) { it.superclass }
-            .flatMap { it.declaredMethods.asSequence() }
-            .firstOrNull { it.name == "build" && it.parameterTypes.isEmpty() } ?: error("build() not found")
-        XposedBridge.hookMethod(build, object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                if (autoplay.get() == true) {
-                    setAutoPlay.invoke(param.thisObject, true)
-                    if (autoplayed++ < 5) log("autoplay enabled on ${param.thisObject.javaClass.name}")
-                }
+    private fun drawableOf(span: ReplacementSpan): Drawable? {
+        val field = synchronized(drawableFields) {
+            drawableFields.getOrPut(span.javaClass) {
+                span.javaClass.declaredFields
+                    .firstOrNull { Drawable::class.java.isAssignableFrom(it.type) }
+                    ?.apply { isAccessible = true }
             }
-        })
-    } catch (e: Throwable) {
-        log("animated ping badges UNAVAILABLE: $e")
-        null
+        }
+        return field?.get(span) as Drawable?
+    }
+
+    // Fresco wraps the image in several drawables (fade, scale type, ...), so look through their fields
+    private fun findAnimatable(drawable: Drawable, depth: Int, seen: java.util.IdentityHashMap<Any, Boolean>): Animatable? {
+        if (depth > 8 || seen.put(drawable, true) != null) return null
+        if (drawable is Animatable) return drawable
+        var type: Class<*>? = drawable.javaClass
+        while (type != null && type != Drawable::class.java && type != Any::class.java) {
+            for (field in type.declaredFields) {
+                if (java.lang.reflect.Modifier.isStatic(field.modifiers)) continue
+                val children = try {
+                    field.isAccessible = true
+                    when {
+                        Drawable::class.java.isAssignableFrom(field.type) -> listOfNotNull(field.get(drawable) as? Drawable)
+                        field.type.isArray && Drawable::class.java.isAssignableFrom(field.type.componentType!!) ->
+                            (field.get(drawable) as? Array<*>)?.filterIsInstance<Drawable>().orEmpty()
+                        else -> emptyList()
+                    }
+                } catch (_: Throwable) {
+                    emptyList()
+                }
+                // Drawables point back at their callbacks and parents, which are not children
+                for (child in children) if (child !== drawable) findAnimatable(child, depth + 1, seen)?.let { return it }
+            }
+            type = type.superclass
+        }
+        if (walks < 3 && depth == 0) {
+            walks++
+            log("no Animatable yet in ${drawable.javaClass.name}")
+        }
+        return null
     }
 
     private class ViewIds(view: View) {
@@ -260,6 +298,7 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
 
     fun dispose() {
         for (unhook in unhooks) unhook.unhook()
+        drawUnhook?.unhook()
         io.shutdownNow()
         synchronized(badges) { badges.clear() }
         mainHandler.post {
