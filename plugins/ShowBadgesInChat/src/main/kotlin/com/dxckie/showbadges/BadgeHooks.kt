@@ -98,6 +98,23 @@ internal class BadgeHooks(dexFinder: DexFinder) {
     }
     private val loading = HashSet<String>()
     @Volatile private var animate = false
+    private val logLines = ArrayDeque<String>()
+    private var pings = 0
+    private var autoplayed = 0
+    private var puts = 0
+
+    fun log(line: String) {
+        val time = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())
+        synchronized(logLines) {
+            logLines.addLast("$time $line")
+            if (logLines.size > 150) logLines.removeFirst()
+        }
+        XposedBridge.log("ShowBadges: $line")
+    }
+
+    fun dumpLog(): String = synchronized(logLines) {
+        "animate=$animate pings(marker seen)=$pings builds with autoplay=$autoplayed puts=$puts\n" + logLines.joinToString("\n")
+    }
     // Set while one of our icons is being appended, so Fresco's builder plays its animation
     private val autoplay = ThreadLocal<Boolean>()
     private val io = Executors.newFixedThreadPool(2)
@@ -122,6 +139,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
             }
         } ?: error("MessageView.setMessage not found")
 
+        log("hooks: appendImage=${appendImage.declaringClass.name}.${appendImage.name} setMessage=${setMessage.name}")
         unhooks = listOfNotNull(
             animatedImages(dexFinder),
             // Discord rounds inline images by default, which cuts off the quest badge
@@ -133,6 +151,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                     param.args[args.url] = url.substring(0, index)
                     args.clearCornerRadius(param.args)
                     if (animate) autoplay.set(true)
+                    if (pings++ < 5) log("ping badge image: animate=$animate thread=${Thread.currentThread().name} url=${url.substring(0, index).takeLast(60)}")
                 }
 
                 override fun afterHookedMethod(param: MethodHookParam) {
@@ -154,7 +173,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                         row.messageId = id.takeIf { shows }
                         render(row)
                     } catch (e: Throwable) {
-                        XposedBridge.log("ShowBadges: header hook failed: $e")
+                        log("header hook failed: $e")
                     }
                 }
             }),
@@ -165,13 +184,17 @@ internal class BadgeHooks(dexFinder: DexFinder) {
     private fun animatedImages(dexFinder: DexFinder): XC_MethodHook.Unhook? = try {
         val builder = dexFinder.classLoader.loadClass(FRESCO_BUILDER)
         val setAutoPlay = builder.getMethod("setAutoPlayAnimations", Boolean::class.javaPrimitiveType)
+        log("fresco builder found: ${builder.name}")
         XposedBridge.hookMethod(builder.getMethod("build"), object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
-                if (autoplay.get() == true) setAutoPlay.invoke(param.thisObject, true)
+                if (autoplay.get() == true) {
+                    setAutoPlay.invoke(param.thisObject, true)
+                    if (autoplayed++ < 5) log("autoplay enabled on ${param.thisObject.javaClass.name}")
+                }
             }
         })
     } catch (e: Throwable) {
-        XposedBridge.log("ShowBadges: animated ping badges unavailable: $e")
+        log("animated ping badges UNAVAILABLE: $e")
         null
     }
 
@@ -183,6 +206,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
     private fun badgesOf(id: String) = synchronized(badges) { badges[id] }
 
     fun put(json: String) {
+        if (puts++ < 3) log("put: ${json.length} chars")
         val updates = JSONObject(json).let { obj ->
             obj.keys().asSequence().associateWith { key ->
                 obj.getJSONArray(key).let { array -> List(array.length(), array::getString) }
@@ -281,6 +305,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         mainHandler.post {
             if (animate == enabled) return@post
             animate = enabled
+            log("animate set to $enabled")
             for (row in rows.values) {
                 row.shown = emptyList()
                 render(row)
