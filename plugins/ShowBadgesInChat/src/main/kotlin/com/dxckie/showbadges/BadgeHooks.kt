@@ -137,19 +137,40 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     private var chat: java.lang.ref.WeakReference<View>? = null
     private var chatLogged = false
 
-    // A profile, sheet or other screen opened over the chat: the chat is still drawn behind it
+    private var lastSeen = ""
+    private var seenLogs = 0
+
+    // A profile, sheet or other screen opened over the chat: the chat is still drawn behind it.
+    // Class names are minified, so look for big visible views drawn after the chat in any of its ancestors.
     private fun chatCovered(): String? {
         val view = chat?.get() ?: return null
         if (!view.isAttachedToWindow) return null
         if (!view.hasWindowFocus()) return "another window has focus"
+        val root = view.rootView
+        val width = root.width
+        val height = root.height
+        val seen = StringBuilder()
+        var cover: String? = null
         var child: View = view
         while (true) {
-            val parent = child.parent as? ViewGroup ?: return null
-            if (parent.javaClass.name.contains("ScreenStack") && parent.indexOfChild(child) < parent.childCount - 1) {
-                return "a screen is open above the chat"
+            val parent = child.parent as? ViewGroup ?: break
+            for (i in parent.indexOfChild(child) + 1 until parent.childCount) {
+                val sibling = parent.getChildAt(i)
+                val children = (sibling as? ViewGroup)?.childCount ?: 0
+                if (sibling.visibility != View.VISIBLE || sibling.alpha <= 0f || children == 0) continue
+                if (sibling.width < width / 5 || sibling.height < height / 5) continue
+                val text = "${sibling.javaClass.simpleName} ${sibling.width}x${sibling.height} alpha=${sibling.alpha}"
+                seen.append(text).append("; ")
+                if (cover == null && sibling.width >= width * 0.9 && sibling.height >= height * 0.4) cover = text
             }
             child = parent
         }
+        // Shows what is drawn over the chat, to tune the check if it guesses wrong
+        if (seen.toString() != lastSeen && seenLogs++ < 30) {
+            lastSeen = seen.toString()
+            log("over the chat (screen ${width}x$height): ${lastSeen.ifEmpty { "nothing" }}")
+        }
+        return cover?.let { "covered by $it" }
     }
 
     private fun logChatChain() {
