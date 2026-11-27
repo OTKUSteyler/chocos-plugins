@@ -33,6 +33,8 @@ private const val MESSAGE = "com.discord.chat.bridge.Message"
 
 // JS appends this to badge icon URLs so the image hook knows which icons are ours
 private const val ANIMATED = "dxckie.show-badges.animated"
+private const val RECHECK_MS = 500L
+private const val OFFSCREEN_MS = 700L
 private const val MARKER = "#dxckie.show-badges"
 private const val CACHE_CAPACITY = 2000
 private const val BADGE_SCALE = 1.15f
@@ -125,7 +127,21 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     // Animated ping icons, so their drawables can be started when drawn. Used on the main thread and in appendImage
     private val animatedSpans = WeakHashMap<ReplacementSpan, Boolean>()
     // Found once per span: looking through the drawables on every frame made chat lag
-    private val running = WeakHashMap<ReplacementSpan, Animatable>()
+    private class Playing(var animatable: Animatable, var checked: Long, var drawn: Long)
+    private val running = WeakHashMap<ReplacementSpan, Playing>()
+    private var sweeping = false
+
+    // Badges that are no longer drawn are off screen: stop them, they restart when drawn again
+    private fun sweep() {
+        val now = android.os.SystemClock.uptimeMillis()
+        val alive = synchronized(running) {
+            for (playing in running.values) {
+                if (now - playing.drawn > OFFSCREEN_MS && playing.animatable.isRunning) playing.animatable.stop()
+            }
+            running.values.any { it.animatable.isRunning }
+        }
+        if (alive && animate) mainHandler.postDelayed(::sweep, OFFSCREEN_MS) else sweeping = false
+    }
     private var drawUnhook: XC_MethodHook.Unhook? = null
     private val io = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -216,13 +232,27 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
                     try {
                         val span = param.thisObject as ReplacementSpan
                         if (!animate || synchronized(animatedSpans) { animatedSpans[span] } != true) return
-                        if (running[span]?.isRunning == true) return
+                        val now = android.os.SystemClock.uptimeMillis()
+                        val playing = synchronized(running) { running[span] }
+                        playing?.drawn = now
+                        // Fresco swaps the drawable when a row is rebound, so look again every so often
+                        if (playing != null && playing.animatable.isRunning && now - playing.checked < RECHECK_MS) return
                         val drawable = drawableOf(span) ?: return
                         val animatable = findAnimatable(drawable, 0, java.util.IdentityHashMap()) ?: return
-                        running[span] = animatable
+                        synchronized(running) {
+                            if (playing == null) running[span] = Playing(animatable, now, now)
+                            else {
+                                playing.animatable = animatable
+                                playing.checked = now
+                            }
+                        }
                         if (!animatable.isRunning) {
                             animatable.start()
                             if (started++ < 5) log("started ${animatable.javaClass.name}")
+                        }
+                        if (!sweeping) {
+                            sweeping = true
+                            mainHandler.postDelayed(::sweep, OFFSCREEN_MS)
                         }
                     } catch (e: Throwable) {
                         if (walks++ < 5) log("ping animation failed: $e")
