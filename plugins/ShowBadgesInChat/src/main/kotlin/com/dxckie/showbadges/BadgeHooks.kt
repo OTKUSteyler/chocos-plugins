@@ -180,12 +180,48 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         )
     }
 
-    // Experimental: pings' icons are Fresco images, which show a still frame unless the controller autoplays
+    private fun sig(m: java.lang.reflect.Method) =
+        "${m.name}(${m.parameterTypes.joinToString { it.simpleName }}):${m.returnType.simpleName}"
+
+    private fun loadOrNull(name: String): Class<*>? = try {
+        dexFinder.classLoader.loadClass(name)
+    } catch (_: Throwable) {
+        null
+    }
+
+    // Experimental: pings' icons are Fresco images, which show a still frame unless the controller autoplays.
+    // Discord's build strips or renames Fresco classes, so find the builder class from what is present.
     private fun animatedImages(dexFinder: DexFinder): XC_MethodHook.Unhook? = try {
-        val builder = dexFinder.classLoader.loadClass(FRESCO_BUILDER)
-        val setAutoPlay = builder.getMethod("setAutoPlayAnimations", Boolean::class.javaPrimitiveType)
-        log("fresco builder found: ${builder.name}")
-        XposedBridge.hookMethod(builder.getMethod("build"), object : XC_MethodHook() {
+        val candidates = listOf(
+            FRESCO_BUILDER,
+            "com.facebook.drawee.backends.pipeline.PipelineDraweeControllerBuilder",
+            "com.facebook.drawee.span.DraweeSpanStringBuilder",
+            "com.facebook.drawee.span.SimpleDraweeSpanTextView",
+            "com.facebook.drawee.backends.pipeline.Fresco",
+        )
+        for (name in candidates) log("class $name: ${if (loadOrNull(name) != null) "present" else "missing"}")
+
+        // The span builder holds the controller builder it uses for every inline image
+        val spans = loadOrNull("com.facebook.drawee.span.DraweeSpanStringBuilder")
+        spans?.declaredMethods?.take(40)?.forEach { log("DraweeSpanStringBuilder.${sig(it)}") }
+        spans?.declaredFields?.forEach { log("DraweeSpanStringBuilder field ${it.name}: ${it.type.name}") }
+        val builder = loadOrNull(FRESCO_BUILDER)
+            ?: loadOrNull("com.facebook.drawee.backends.pipeline.PipelineDraweeControllerBuilder")
+            ?: spans?.declaredFields?.map { it.type }?.firstOrNull { it.name.contains("ControllerBuilder") }
+            ?: error("no controller builder class found")
+        log("controller builder: ${builder.name} super=${builder.superclass?.name}")
+        generateSequence<Class<*>>(builder) { it.superclass }.forEach { c ->
+            c.declaredMethods.filter { it.parameterTypes.size <= 1 && (it.name.startsWith("set") || it.name == "build") }
+                .take(30).forEach { log("  ${c.simpleName}.${sig(it)}") }
+        }
+        val setAutoPlay = generateSequence<Class<*>>(builder) { it.superclass }
+            .flatMap { it.declaredMethods.asSequence() }
+            .firstOrNull { it.name == "setAutoPlayAnimations" }
+            ?.apply { isAccessible = true } ?: error("setAutoPlayAnimations not found")
+        val build = generateSequence<Class<*>>(builder) { it.superclass }
+            .flatMap { it.declaredMethods.asSequence() }
+            .firstOrNull { it.name == "build" && it.parameterTypes.isEmpty() } ?: error("build() not found")
+        XposedBridge.hookMethod(build, object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 if (autoplay.get() == true) {
                     setAutoPlay.invoke(param.thisObject, true)
