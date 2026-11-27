@@ -81,7 +81,7 @@ private class BadgeRow(val view: RelativeLayout, val header: View, val text: Flo
     var shown: List<String> = emptyList()
 }
 
-internal class BadgeHooks(dexFinder: DexFinder) {
+internal class BadgeHooks(private val dexFinder: DexFinder) {
     // message id -> badge icon URLs
     private val badges = object : LinkedHashMap<String, List<String>>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>) = size > CACHE_CAPACITY
