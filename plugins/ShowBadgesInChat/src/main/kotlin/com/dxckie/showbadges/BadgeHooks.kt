@@ -108,24 +108,9 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     }
     private val loading = HashSet<String>()
     @Volatile private var animate = false
-    private val logLines = ArrayDeque<String>()
-    private var pings = 0
-    private var started = 0
-    private var walks = 0
-    private var puts = 0
+    // Goes to the Xposed log, for errors and a few state changes
+    private fun log(line: String) = XposedBridge.log("ShowBadges: $line")
 
-    fun log(line: String) {
-        val time = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())
-        synchronized(logLines) {
-            logLines.addLast("$time $line")
-            if (logLines.size > 150) logLines.removeFirst()
-        }
-        XposedBridge.log("ShowBadges: $line")
-    }
-
-    fun dumpLog(): String = synchronized(logLines) {
-        "animate=$animate pings(marker seen)=$pings animations started=$started puts=$puts\n" + logLines.joinToString("\n")
-    }
     // Animated ping icons, so their drawables can be started when drawn. Used on the main thread and in appendImage
     private val animatedSpans = WeakHashMap<ReplacementSpan, Boolean>()
     // Found once per span: looking through the drawables on every frame made chat lag
@@ -201,7 +186,6 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
             }
         } ?: error("MessageView.setMessage not found")
 
-        log("hooks: appendImage=${appendImage.declaringClass.name}.${appendImage.name} setMessage=${setMessage.name}")
         unhooks = listOfNotNull(
             // Discord rounds inline images by default, which cuts off the quest badge
             XposedBridge.hookMethod(appendImage, object : XC_MethodHook() {
@@ -212,7 +196,6 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
                     param.args[args.url] = url.substring(0, index)
                     args.clearCornerRadius(param.args)
                     if (animate && AnimatedUrl.containsMatchIn(url.substring(0, index))) param.setObjectExtra(ANIMATED, true)
-                    if (pings++ < 5) log("ping badge image: animate=$animate thread=${Thread.currentThread().name} url=${url.substring(0, index).takeLast(60)}")
                 }
 
                 override fun afterHookedMethod(param: MethodHookParam) {
@@ -263,7 +246,6 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
                 "draw", Canvas::class.java, CharSequence::class.java, int, int, Float::class.javaPrimitiveType, int, int, int,
                 Paint::class.java,
             )
-            log("hooking ${spanClass.name}.draw")
             drawUnhook = XposedBridge.hookMethod(draw, object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     try {
@@ -285,14 +267,13 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
                         }
                         if (!animatable.isRunning) {
                             animatable.start()
-                            if (started++ < 5) log("started ${animatable.javaClass.name}")
                         }
                         if (!sweeping) {
                             sweeping = true
                             mainHandler.postDelayed(::sweep, SWEEP_MS)
                         }
                     } catch (e: Throwable) {
-                        if (walks++ < 5) log("ping animation failed: $e")
+                        log("ping animation failed: $e")
                     }
                 }
             })
@@ -347,7 +328,6 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     private fun badgesOf(id: String) = synchronized(badges) { badges[id] }
 
     fun put(json: String) {
-        if (puts++ < 3) log("put: ${json.length} chars")
         val updates = JSONObject(json).let { obj ->
             obj.keys().asSequence().associateWith { key ->
                 obj.getJSONArray(key).let { array -> List(array.length(), array::getString) }
@@ -449,7 +429,6 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
         mainHandler.post {
             if (animate == enabled) return@post
             animate = enabled
-            log("animate set to $enabled")
             for (row in rows.values) {
                 row.shown = emptyList()
                 render(row)

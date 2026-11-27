@@ -1,9 +1,7 @@
 import Page from '@valenced/components/Page'
 import TableRowAssetIcon from '@valenced/components/TableRowAssetIcon'
 import { Design } from '@valenced/discord/design'
-import { useEffect, useState } from 'react'
 import { Image, ScrollView, View } from 'react-native'
-import { readLog } from './native'
 import { DefaultSettings } from './shared'
 import type { PluginSettingsComponent } from '@valenced/plugins/types'
 import type { ComponentProps } from 'react'
@@ -28,32 +26,6 @@ function Badges() {
 	)
 }
 
-function DebugLog() {
-	const [text, setText] = useState('')
-	useEffect(() => {
-		const read = () => {
-			try {
-				setText(readLog())
-			} catch (e) {
-				setText(`could not read native log: ${e}`)
-			}
-		}
-		read()
-		const timer = setInterval(read, 1500)
-		return () => clearInterval(timer)
-	}, [])
-	return (
-		<Stack spacing={8}>
-			<Text variant="text-sm/semibold" color="text-muted">
-				Debug log (hold to select and copy)
-			</Text>
-			<Text variant="text-xs/normal" color="text-normal" selectable>
-				{text}
-			</Text>
-		</Stack>
-	)
-}
-
 function Preview({ ping, username }: { ping: boolean; username: boolean }) {
 	return (
 		<Stack spacing={8}>
@@ -62,25 +34,35 @@ function Preview({ ping, username }: { ping: boolean; username: boolean }) {
 			</Text>
 			<View
 				style={{
-					padding: 12,
-					gap: 4,
-					borderRadius: 12,
-					borderWidth: 1,
-					borderColor: 'rgba(128,128,128,0.4)',
+					flexDirection: 'row',
+					gap: 12,
+					padding: 16,
+					borderRadius: 16,
+					backgroundColor: 'rgba(128,128,128,0.12)',
 				}}
 			>
-				<Text variant="text-md/semibold" color="text-normal">
-					duckie
-				</Text>
-				{username && <Badges />}
-				<View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-					<Text variant="text-md/normal" color="text-normal">
-						hey
+				<View
+					style={{
+						width: 40,
+						height: 40,
+						borderRadius: 20,
+						backgroundColor: 'rgba(128,128,128,0.35)',
+					}}
+				/>
+				<View style={{ flex: 1, gap: 4 }}>
+					<Text variant="text-md/semibold" color="text-default">
+						duckie
 					</Text>
-					<Text variant="text-md/semibold" color="text-link">
-						@duckie
-					</Text>
-					{ping && <Badges />}
+					{username && <Badges />}
+					<View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+						<Text variant="text-md/normal" color="text-default">
+							hey
+						</Text>
+						<Text variant="text-md/semibold" color="text-link">
+							@duckie
+						</Text>
+						{ping && <Badges />}
+					</View>
 				</View>
 			</View>
 		</Stack>
@@ -117,7 +99,7 @@ export default function SettingsComponent({
 					</TableRowGroup>
 					<TableRowGroup title="Animation">
 						<TableSwitchRow
-							icon={<TableRowAssetIcon name="AwardIcon" />}
+							icon={<TableRowAssetIcon name="RefreshIcon" />}
 							label="Animate badges"
 							subLabel="Play animated badges in message headers and after pings (pings are experimental). Can slow chat down with many of them."
 							value={settings.animate}
@@ -126,21 +108,20 @@ export default function SettingsComponent({
 					</TableRowGroup>
 					<TableRowGroup title="Sources">
 						<TableSwitchRow
-							icon={<TableRowAssetIcon name="AwardIcon" />}
+							icon={<TableRowAssetIcon name="GlobeEarthIcon" />}
 							label="Global Badges"
 							subLabel="Also show badges from other client mods."
 							value={settings.global}
 							onValueChange={global => storage.set({ global })}
 						/>
 						<TableSwitchRow
-							icon={<TableRowAssetIcon name="AwardIcon" />}
+							icon={<TableRowAssetIcon name="GlobeEarthIcon" />}
 							label="Show Global Badges only"
 							subLabel="Skip Discord profile badges and show only the ones from other client mods."
 							value={settings.globalOnly}
 							onValueChange={globalOnly => storage.set({ globalOnly })}
 						/>
 					</TableRowGroup>
-					<DebugLog />
 				</Stack>
 			</ScrollView>
 		</Page>
