@@ -7,7 +7,7 @@
 	"icon": "AwardIcon",
 
 	
-	"version": "2.4.8",
+	"version": "2.4.9",
 	"dependencies": {
 		"valenced.api": {
 			"version": ">=1 <2"

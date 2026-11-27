@@ -34,6 +34,7 @@ private const val MESSAGE = "com.discord.chat.bridge.Message"
 // JS appends this to badge icon URLs so the image hook knows which icons are ours
 private const val ANIMATED = "dxckie.show-badges.animated"
 private const val RECHECK_MS = 500L
+private const val SWEEP_MS = 300L
 private const val OFFSCREEN_MS = 700L
 private const val MARKER = "#dxckie.show-badges"
 private const val CACHE_CAPACITY = 2000
@@ -132,15 +133,58 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
     private var sweeping = false
 
     // Badges that are no longer drawn are off screen: stop them, they restart when drawn again
+    @Volatile private var paused = false
+    private var chat: java.lang.ref.WeakReference<View>? = null
+    private var chatLogged = false
+
+    // A profile, sheet or other screen opened over the chat: the chat is still drawn behind it
+    private fun chatCovered(): String? {
+        val view = chat?.get() ?: return null
+        if (!view.isAttachedToWindow) return null
+        if (!view.hasWindowFocus()) return "another window has focus"
+        var child: View = view
+        while (true) {
+            val parent = child.parent as? ViewGroup ?: return null
+            if (parent.javaClass.name.contains("ScreenStack") && parent.indexOfChild(child) < parent.childCount - 1) {
+                return "a screen is open above the chat"
+            }
+            child = parent
+        }
+    }
+
+    private fun logChatChain() {
+        if (chatLogged) return
+        chatLogged = true
+        val names = ArrayList<String>()
+        var p = chat?.get()?.parent
+        while (p != null && names.size < 14) {
+            names += p.javaClass.simpleName
+            p = p.parent
+        }
+        log("chat view parents: ${names.joinToString(" > ")}")
+    }
+
     private fun sweep() {
         val now = android.os.SystemClock.uptimeMillis()
+        logChatChain()
+        val covered = chatCovered()
+        if (covered != null && !paused) {
+            paused = true
+            log("paused animations: $covered")
+        } else if (covered == null && paused) {
+            paused = false
+            log("resumed animations")
+            // Nothing redraws the chat on its own once its animations are stopped
+            chat?.get()?.rootView?.invalidate()
+        }
         val alive = synchronized(running) {
             for (playing in running.values) {
-                if (now - playing.drawn > OFFSCREEN_MS && playing.animatable.isRunning) playing.animatable.stop()
+                val offscreen = now - playing.drawn > OFFSCREEN_MS
+                if ((paused || offscreen) && playing.animatable.isRunning) playing.animatable.stop()
             }
             running.values.any { it.animatable.isRunning }
         }
-        if (alive && animate) mainHandler.postDelayed(::sweep, OFFSCREEN_MS) else sweeping = false
+        if ((alive || paused) && animate) mainHandler.postDelayed(::sweep, SWEEP_MS) else sweeping = false
     }
     private var drawUnhook: XC_MethodHook.Unhook? = null
     private val io = Executors.newFixedThreadPool(2)
@@ -198,6 +242,7 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     try {
                         val view = param.thisObject as RelativeLayout
+                        if (chat?.get() !== view) chat = java.lang.ref.WeakReference(view)
                         val id = messageIdField.get(param.args[0]) as String
                         val ids = ids ?: ViewIds(view).also { ids = it }
                         val header = view.childWithId(ids.header) ?: return
@@ -231,7 +276,7 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     try {
                         val span = param.thisObject as ReplacementSpan
-                        if (!animate || synchronized(animatedSpans) { animatedSpans[span] } != true) return
+                        if (!animate || paused || synchronized(animatedSpans) { animatedSpans[span] } != true) return
                         val now = android.os.SystemClock.uptimeMillis()
                         val playing = synchronized(running) { running[span] }
                         playing?.drawn = now
@@ -252,7 +297,7 @@ internal class BadgeHooks(private val dexFinder: DexFinder) {
                         }
                         if (!sweeping) {
                             sweeping = true
-                            mainHandler.postDelayed(::sweep, OFFSCREEN_MS)
+                            mainHandler.postDelayed(::sweep, SWEEP_MS)
                         }
                     } catch (e: Throwable) {
                         if (walks++ < 5) log("ping animation failed: $e")
