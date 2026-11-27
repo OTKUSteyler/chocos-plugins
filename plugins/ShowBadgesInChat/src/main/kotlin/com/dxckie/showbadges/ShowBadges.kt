@@ -26,6 +26,8 @@ val showBadges = plugin {
             null
         }
 
+        registerNativeMethod("dxckie.badges.log") { hooks?.dumpLog() ?: "hooks not installed" }
+
         registerNativeMethod("dxckie.badges.clear") {
             hooks?.clear()
             null

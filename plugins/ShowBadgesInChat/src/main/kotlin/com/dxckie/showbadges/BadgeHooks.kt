@@ -3,7 +3,13 @@ package com.dxckie.showbadges
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Animatable
+import android.graphics.drawable.Drawable
+import android.text.SpannableStringBuilder
+import android.text.style.ReplacementSpan
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -26,8 +32,13 @@ private const val MESSAGE_VIEW = "com.discord.chat.presentation.message.MessageV
 private const val MESSAGE = "com.discord.chat.bridge.Message"
 
 // JS appends this to badge icon URLs so the image hook knows which icons are ours
+private const val ANIMATED = "dxckie.show-badges.animated"
+private const val RECHECK_MS = 500L
+private const val SWEEP_MS = 300L
+private const val OFFSCREEN_MS = 700L
 private const val MARKER = "#dxckie.show-badges"
 private const val CACHE_CAPACITY = 2000
+private const val MAX_BITMAP = 128
 private const val BADGE_SCALE = 1.15f
 private val AnimatedUrl = Regex("\\.(gif|apng|webp)(\\?|#|$)", RegexOption.IGNORE_CASE)
 
@@ -80,7 +91,7 @@ private class BadgeRow(val view: RelativeLayout, val header: View, val text: Flo
     var shown: List<String> = emptyList()
 }
 
-internal class BadgeHooks(dexFinder: DexFinder) {
+internal class BadgeHooks(private val dexFinder: DexFinder) {
     // message id -> badge icon URLs
     private val badges = object : LinkedHashMap<String, List<String>>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>) = size > CACHE_CAPACITY
@@ -96,8 +107,79 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>) = size > 100
     }
     private val loading = HashSet<String>()
-    private var animate = false
-    private val io = Executors.newFixedThreadPool(2)
+    @Volatile private var animate = false
+    private val logLines = ArrayDeque<String>()
+    private var pings = 0
+    private var started = 0
+    private var walks = 0
+    private var puts = 0
+
+    fun log(line: String) {
+        val time = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())
+        synchronized(logLines) {
+            logLines.addLast("$time $line")
+            if (logLines.size > 150) logLines.removeFirst()
+        }
+        XposedBridge.log("ShowBadges: $line")
+    }
+
+    fun dumpLog(): String = synchronized(logLines) {
+        "animate=$animate pings(marker seen)=$pings animations started=$started puts=$puts\n" + logLines.joinToString("\n")
+    }
+    // Animated ping icons, so their drawables can be started when drawn. Used on the main thread and in appendImage
+    private val animatedSpans = WeakHashMap<ReplacementSpan, Boolean>()
+    // Found once per span: looking through the drawables on every frame made chat lag
+    private class Playing(var animatable: Animatable, var checked: Long, var drawn: Long)
+    private val running = WeakHashMap<ReplacementSpan, Playing>()
+    private var sweeping = false
+
+    // Badges that are no longer drawn are off screen: stop them, they restart when drawn again
+    @Volatile private var paused = false
+    private var chat: java.lang.ref.WeakReference<View>? = null
+
+    // A profile, sheet or other screen opened over the chat: the chat is still drawn behind it.
+    // Class names are minified, so look for a big visible view drawn after the chat in any of its ancestors.
+    private fun chatCovered(): String? {
+        val view = chat?.get() ?: return null
+        if (!view.isAttachedToWindow) return null
+        if (!view.hasWindowFocus()) return "another window has focus"
+        val root = view.rootView
+        var child: View = view
+        while (true) {
+            val parent = child.parent as? ViewGroup ?: return null
+            for (i in parent.indexOfChild(child) + 1 until parent.childCount) {
+                val sibling = parent.getChildAt(i)
+                if (sibling.visibility == View.VISIBLE && sibling.alpha > 0f && sibling is ViewGroup && sibling.childCount > 0 &&
+                    sibling.width >= root.width * 0.9 && sibling.height >= root.height * 0.4
+                ) return "a full-screen view is open over the chat"
+            }
+            child = parent
+        }
+    }
+
+    private fun sweep() {
+        val now = android.os.SystemClock.uptimeMillis()
+        val covered = chatCovered()
+        if (covered != null && !paused) {
+            paused = true
+            log("paused animations: $covered")
+        } else if (covered == null && paused) {
+            paused = false
+            log("resumed animations")
+            // Nothing redraws the chat on its own once its animations are stopped
+            chat?.get()?.rootView?.invalidate()
+        }
+        val alive = synchronized(running) {
+            for (playing in running.values) {
+                val offscreen = now - playing.drawn > OFFSCREEN_MS
+                if ((paused || offscreen) && playing.animatable.isRunning) playing.animatable.stop()
+            }
+            running.values.any { it.animatable.isRunning }
+        }
+        if ((alive || paused) && animate) mainHandler.postDelayed(::sweep, SWEEP_MS) else sweeping = false
+    }
+    private var drawUnhook: XC_MethodHook.Unhook? = null
+    private val io = Executors.newFixedThreadPool(6)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var ids: ViewIds? = null
 
@@ -119,7 +201,8 @@ internal class BadgeHooks(dexFinder: DexFinder) {
             }
         } ?: error("MessageView.setMessage not found")
 
-        unhooks = listOf(
+        log("hooks: appendImage=${appendImage.declaringClass.name}.${appendImage.name} setMessage=${setMessage.name}")
+        unhooks = listOfNotNull(
             // Discord rounds inline images by default, which cuts off the quest badge
             XposedBridge.hookMethod(appendImage, object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
@@ -128,12 +211,30 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                     if (index < 0) return
                     param.args[args.url] = url.substring(0, index)
                     args.clearCornerRadius(param.args)
+                    if (animate && AnimatedUrl.containsMatchIn(url.substring(0, index))) param.setObjectExtra(ANIMATED, true)
+                    if (pings++ < 5) log("ping badge image: animate=$animate thread=${Thread.currentThread().name} url=${url.substring(0, index).takeLast(60)}")
+                }
+
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    if (param.getObjectExtra(ANIMATED) != true) return
+                    try {
+                        // The image is the last character appended
+                        val builder = param.args[0] as SpannableStringBuilder
+                        val end = builder.length
+                        for (span in builder.getSpans(end - 1, end, ReplacementSpan::class.java)) {
+                            synchronized(animatedSpans) { animatedSpans[span] = true }
+                            hookDraw(span.javaClass)
+                        }
+                    } catch (e: Throwable) {
+                        log("ping animation setup failed: $e")
+                    }
                 }
             }),
             XposedBridge.hookMethod(setMessage, object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     try {
                         val view = param.thisObject as RelativeLayout
+                        if (chat?.get() !== view) chat = java.lang.ref.WeakReference(view)
                         val id = messageIdField.get(param.args[0]) as String
                         val ids = ids ?: ViewIds(view).also { ids = it }
                         val header = view.childWithId(ids.header) ?: return
@@ -145,11 +246,97 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                         row.messageId = id.takeIf { shows }
                         render(row)
                     } catch (e: Throwable) {
-                        XposedBridge.log("ShowBadges: header hook failed: $e")
+                        log("header hook failed: $e")
                     }
                 }
             }),
         )
+    }
+
+    // Fresco only starts animated images when told to, and its classes are mostly stripped from Discord.
+    // So start the Animatable inside the image span's drawable when the span is drawn.
+    private fun hookDraw(spanClass: Class<*>) {
+        synchronized(this) {
+            if (drawUnhook != null) return
+            val int = Int::class.javaPrimitiveType
+            val draw = spanClass.getDeclaredMethod(
+                "draw", Canvas::class.java, CharSequence::class.java, int, int, Float::class.javaPrimitiveType, int, int, int,
+                Paint::class.java,
+            )
+            log("hooking ${spanClass.name}.draw")
+            drawUnhook = XposedBridge.hookMethod(draw, object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    try {
+                        val span = param.thisObject as ReplacementSpan
+                        if (!animate || paused || synchronized(animatedSpans) { animatedSpans[span] } != true) return
+                        val now = android.os.SystemClock.uptimeMillis()
+                        val playing = synchronized(running) { running[span] }
+                        playing?.drawn = now
+                        // Fresco swaps the drawable when a row is rebound, so look again every so often
+                        if (playing != null && playing.animatable.isRunning && now - playing.checked < RECHECK_MS) return
+                        val drawable = drawableOf(span) ?: return
+                        val animatable = findAnimatable(drawable, 0, java.util.IdentityHashMap()) ?: return
+                        synchronized(running) {
+                            if (playing == null) running[span] = Playing(animatable, now, now)
+                            else {
+                                playing.animatable = animatable
+                                playing.checked = now
+                            }
+                        }
+                        if (!animatable.isRunning) {
+                            animatable.start()
+                            if (started++ < 5) log("started ${animatable.javaClass.name}")
+                        }
+                        if (!sweeping) {
+                            sweeping = true
+                            mainHandler.postDelayed(::sweep, SWEEP_MS)
+                        }
+                    } catch (e: Throwable) {
+                        if (walks++ < 5) log("ping animation failed: $e")
+                    }
+                }
+            })
+        }
+    }
+
+    private val drawableFields = HashMap<Class<*>, java.lang.reflect.Field?>()
+
+    private fun drawableOf(span: ReplacementSpan): Drawable? {
+        val field = synchronized(drawableFields) {
+            drawableFields.getOrPut(span.javaClass) {
+                span.javaClass.declaredFields
+                    .firstOrNull { Drawable::class.java.isAssignableFrom(it.type) }
+                    ?.apply { isAccessible = true }
+            }
+        }
+        return field?.get(span) as Drawable?
+    }
+
+    // Fresco wraps the image in several drawables (fade, scale type, ...), so look through their fields
+    private fun findAnimatable(drawable: Drawable, depth: Int, seen: java.util.IdentityHashMap<Any, Boolean>): Animatable? {
+        if (depth > 8 || seen.put(drawable, true) != null) return null
+        if (drawable is Animatable) return drawable
+        var type: Class<*>? = drawable.javaClass
+        while (type != null && type != Drawable::class.java && type != Any::class.java) {
+            for (field in type.declaredFields) {
+                if (java.lang.reflect.Modifier.isStatic(field.modifiers)) continue
+                val children = try {
+                    field.isAccessible = true
+                    when {
+                        Drawable::class.java.isAssignableFrom(field.type) -> listOfNotNull(field.get(drawable) as? Drawable)
+                        field.type.isArray && Drawable::class.java.isAssignableFrom(field.type.componentType!!) ->
+                            (field.get(drawable) as? Array<*>)?.filterIsInstance<Drawable>().orEmpty()
+                        else -> emptyList()
+                    }
+                } catch (_: Throwable) {
+                    emptyList()
+                }
+                // Drawables point back at their callbacks and parents, which are not children
+                for (child in children) if (child !== drawable) findAnimatable(child, depth + 1, seen)?.let { return it }
+            }
+            type = type.superclass
+        }
+        return null
     }
 
     private class ViewIds(view: View) {
@@ -160,6 +347,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
     private fun badgesOf(id: String) = synchronized(badges) { badges[id] }
 
     fun put(json: String) {
+        if (puts++ < 3) log("put: ${json.length} chars")
         val updates = JSONObject(json).let { obj ->
             obj.keys().asSequence().associateWith { key ->
                 obj.getJSONArray(key).let { array -> List(array.length(), array::getString) }
@@ -167,6 +355,8 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         }
         synchronized(badges) { badges.putAll(updates) }
         mainHandler.post {
+            // Start loading before the rows are bound, so the badges are ready when they are
+            for (url in updates.values.flatten().toSet()) if (url !in images) load(url)
             for (row in rows.values) if (row.messageId in updates) render(row)
         }
     }
@@ -177,6 +367,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
 
     fun dispose() {
         for (unhook in unhooks) unhook.unhook()
+        drawUnhook?.unhook()
         io.shutdownNow()
         synchronized(badges) { badges.clear() }
         mainHandler.post {
@@ -258,6 +449,7 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         mainHandler.post {
             if (animate == enabled) return@post
             animate = enabled
+            log("animate set to $enabled")
             for (row in rows.values) {
                 row.shown = emptyList()
                 render(row)
@@ -265,20 +457,59 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         }
     }
 
+    // Survives restarts, so badges show right when Discord opens instead of after downloading
+    private val cacheDir: java.io.File? by lazy {
+        try {
+            val app = Class.forName("android.app.ActivityThread").getMethod("currentApplication").invoke(null) as android.app.Application
+            java.io.File(app.cacheDir, "show-badges").apply { mkdirs() }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun cacheFile(url: String) = cacheDir?.let {
+        java.io.File(it, java.security.MessageDigest.getInstance("SHA-1").digest(url.toByteArray()).joinToString("") { b -> "%02x".format(b) })
+    }
+
+    private fun readDisk(url: String): ByteArray? = try {
+        cacheFile(url)?.takeIf { it.length() > 0 }?.readBytes()
+    } catch (_: Throwable) {
+        null
+    }
+
+    private fun writeDisk(url: String, bytes: ByteArray) {
+        try {
+            val file = cacheFile(url) ?: return
+            val temp = java.io.File(file.path + ".tmp")
+            temp.writeBytes(bytes)
+            temp.renameTo(file)
+        } catch (_: Throwable) {
+        }
+    }
+
+    // Badges are drawn at about 20dp, so big source images are decoded smaller
+    private fun decode(bytes: ByteArray): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= MAX_BITMAP) sample *= 2
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+
     private fun load(url: String) {
         if (!loading.add(url)) return
         io.execute {
             val bytes = try {
-                URL(url).openStream().use { it.readBytes() }
+                readDisk(url) ?: URL(url).openStream().use { it.readBytes() }.also { writeDisk(url, it) }
             } catch (_: Throwable) {
                 null
             }
-            val bitmap = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+            val bitmap = bytes?.let(::decode)
             mainHandler.post {
                 loading.remove(url)
                 if (bitmap == null || bytes == null) return@post
                 images[url] = bitmap
-                files[url] = bytes
+                if (AnimatedUrl.containsMatchIn(url)) files[url] = bytes
                 for (row in rows.values) if (url in row.messageId?.let(::badgesOf).orEmpty()) render(row)
             }
         }

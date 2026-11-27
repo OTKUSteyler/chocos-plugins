@@ -1,7 +1,9 @@
 import Page from '@valenced/components/Page'
 import TableRowAssetIcon from '@valenced/components/TableRowAssetIcon'
 import { Design } from '@valenced/discord/design'
+import { useEffect, useState } from 'react'
 import { Image, ScrollView, View } from 'react-native'
+import { readLog } from './native'
 import { DefaultSettings } from './shared'
 import type { PluginSettingsComponent } from '@valenced/plugins/types'
 import type { ComponentProps } from 'react'
@@ -23,6 +25,32 @@ function Badges() {
 				<Image key={uri} source={{ uri }} style={{ width: 18, height: 18 }} />
 			))}
 		</View>
+	)
+}
+
+function DebugLog() {
+	const [text, setText] = useState('')
+	useEffect(() => {
+		const read = () => {
+			try {
+				setText(readLog())
+			} catch (e) {
+				setText(`could not read native log: ${e}`)
+			}
+		}
+		read()
+		const timer = setInterval(read, 1500)
+		return () => clearInterval(timer)
+	}, [])
+	return (
+		<Stack spacing={8}>
+			<Text variant="text-sm/semibold" color="text-muted">
+				Debug log (hold to select and copy)
+			</Text>
+			<Text variant="text-xs/normal" color="text-normal" selectable>
+				{text}
+			</Text>
+		</Stack>
 	)
 }
 
@@ -91,7 +119,7 @@ export default function SettingsComponent({
 						<TableSwitchRow
 							icon={<TableRowAssetIcon name="AwardIcon" />}
 							label="Animate badges"
-							subLabel="Play animated badges in message headers. Can slow chat down with many of them."
+							subLabel="Play animated badges in message headers and after pings (pings are experimental). Can slow chat down with many of them."
 							value={settings.animate}
 							onValueChange={animate => storage.set({ animate })}
 						/>
@@ -112,6 +140,7 @@ export default function SettingsComponent({
 							onValueChange={globalOnly => storage.set({ globalOnly })}
 						/>
 					</TableRowGroup>
+					<DebugLog />
 				</Stack>
 			</ScrollView>
 		</Page>
