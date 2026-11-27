@@ -91,7 +91,7 @@ export default function SettingsComponent({
 						<TableSwitchRow
 							icon={<TableRowAssetIcon name="AwardIcon" />}
 							label="Animate badges"
-							subLabel="Play animated badges in message headers. Can slow chat down with many of them."
+							subLabel="Play animated badges in message headers and after pings (pings are experimental). Can slow chat down with many of them."
 							value={settings.animate}
 							onValueChange={animate => storage.set({ animate })}
 						/>

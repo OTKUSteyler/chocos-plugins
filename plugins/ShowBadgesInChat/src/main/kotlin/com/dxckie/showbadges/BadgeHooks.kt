@@ -24,6 +24,7 @@ import java.util.concurrent.Executors
 
 private const val MESSAGE_VIEW = "com.discord.chat.presentation.message.MessageView"
 private const val MESSAGE = "com.discord.chat.bridge.Message"
+private const val FRESCO_BUILDER = "com.facebook.drawee.controller.AbstractDraweeControllerBuilder"
 
 // JS appends this to badge icon URLs so the image hook knows which icons are ours
 private const val MARKER = "#dxckie.show-badges"
@@ -96,7 +97,9 @@ internal class BadgeHooks(dexFinder: DexFinder) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>) = size > 100
     }
     private val loading = HashSet<String>()
-    private var animate = false
+    @Volatile private var animate = false
+    // Set while one of our icons is being appended, so Fresco's builder plays its animation
+    private val autoplay = ThreadLocal<Boolean>()
     private val io = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var ids: ViewIds? = null
@@ -119,7 +122,8 @@ internal class BadgeHooks(dexFinder: DexFinder) {
             }
         } ?: error("MessageView.setMessage not found")
 
-        unhooks = listOf(
+        unhooks = listOfNotNull(
+            animatedImages(dexFinder),
             // Discord rounds inline images by default, which cuts off the quest badge
             XposedBridge.hookMethod(appendImage, object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
@@ -128,6 +132,11 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                     if (index < 0) return
                     param.args[args.url] = url.substring(0, index)
                     args.clearCornerRadius(param.args)
+                    if (animate) autoplay.set(true)
+                }
+
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    autoplay.remove()
                 }
             }),
             XposedBridge.hookMethod(setMessage, object : XC_MethodHook() {
@@ -150,6 +159,20 @@ internal class BadgeHooks(dexFinder: DexFinder) {
                 }
             }),
         )
+    }
+
+    // Experimental: pings' icons are Fresco images, which show a still frame unless the controller autoplays
+    private fun animatedImages(dexFinder: DexFinder): XC_MethodHook.Unhook? = try {
+        val builder = dexFinder.classLoader.loadClass(FRESCO_BUILDER)
+        val setAutoPlay = builder.getMethod("setAutoPlayAnimations", Boolean::class.javaPrimitiveType)
+        XposedBridge.hookMethod(builder.getMethod("build"), object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                if (autoplay.get() == true) setAutoPlay.invoke(param.thisObject, true)
+            }
+        })
+    } catch (e: Throwable) {
+        XposedBridge.log("ShowBadges: animated ping badges unavailable: $e")
+        null
     }
 
     private class ViewIds(view: View) {
