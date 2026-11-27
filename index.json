@@ -591,7 +591,7 @@
       ],
       "icon": "AwardIcon",
       "channels": {
-        "latest": "2.3.0"
+        "latest": "2.3.2"
       },
       "versions": {
         "1.0.1": {
@@ -650,6 +650,19 @@
           "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.show-badges-in-chat@2.3.0.zip",
           "sha256": "59cf8bc5ef7bbf8ba1a4cb3c4a7fa3e166f4bf55f2bdbcd26fd194696af380de",
           "size": 22102,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": ">=350.2"
+            }
+          }
+        },
+        "2.3.2": {
+          "url": "https://otkusteyler.github.io/chocos-plugins/pool/com.otkusteyler.show-badges-in-chat@2.3.2.zip",
+          "sha256": "9402c6eeb8e9f4c88ed4b68ae13fe9f5291de7c86733c96d6cda4a0f7da32dc8",
+          "size": 22099,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
