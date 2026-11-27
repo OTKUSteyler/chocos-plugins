@@ -20,6 +20,12 @@ val showBadges = plugin {
             null
         }
 
+        registerNativeMethod("dxckie.badges.animate") { args ->
+            val enabled by args.asDelegate().string()
+            hooks?.setAnimate(enabled == "1")
+            null
+        }
+
         registerNativeMethod("dxckie.badges.clear") {
             hooks?.clear()
             null

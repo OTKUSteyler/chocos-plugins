@@ -1,10 +1,9 @@
-import { Dispatcher } from '@valenced/discord/common/flux'
 import { Stores } from '@valenced/discord/flux'
 import { getModules, lookupModule } from '@valenced/modules/finders'
 import { withName, withProps } from '@valenced/modules/finders/filters'
 import { after } from '@valenced/patcher'
 import { getErrorStack } from '@valenced/utils/error'
-import { clearBadges, putBadges } from './native'
+import { clearBadges, putBadges, setAnimate } from './native'
 import SettingsComponent from './settings'
 import { DefaultSettings } from './shared'
 import type { Settings } from './shared'
@@ -105,11 +104,53 @@ function toUris(body: unknown): string[] {
 	)
 }
 
-// Messages keep the mention they were first rendered with. Flipping a message
-// flag Discord doesn't use is a change it notices, so it rebuilds the row, and
-// unlike a content change it is not an edit, so loggers like Message Logger
-// don't record it. Users finishing close together share one pass over the channel
-const RedrawFlag = 1 << 30
+// Messages keep the mention they were first rendered with. Discord redraws a
+// row when its record differs from the old one (deep equal over own keys), so
+// the record is swapped for a copy with a fresh marker. Nothing is dispatched,
+// so message loggers see no update and can't take the redraw for an edit.
+// Users finishing close together share one pass over the channel
+const RedrawKey = '__showbadges_redraw'
+let redrawCount = 0
+let channelMessages:
+	| {
+			getOrCreate(channelId: string): Collection
+			commit(collection: Collection): void
+	  }
+	| undefined
+
+interface Collection {
+	has(id: string): boolean
+	update(id: string, fn: (message: object) => object): Collection
+}
+
+function redrawMessages(channelId: string, messageIds: string[]) {
+	channelMessages ??= lookupModule(withProps('getOrCreate', 'commit'))[0] as
+		| typeof channelMessages
+		| undefined
+	if (!channelMessages) return
+
+	let collection = channelMessages.getOrCreate(channelId)
+	for (const id of messageIds) {
+		if (!collection.has(id)) continue
+		collection = collection.update(id, message => {
+			// Same prototype and fields, as records built any other way crash the row builder
+			const copy = Object.create(Object.getPrototypeOf(message))
+			Object.defineProperties(copy, Object.getOwnPropertyDescriptors(message))
+			Object.defineProperty(copy, RedrawKey, {
+				value: ++redrawCount,
+				enumerable: true,
+				writable: true,
+				configurable: true,
+			})
+			return copy
+		})
+	}
+	channelMessages.commit(collection)
+	// After the current dispatch, as emitting inside it re-enters React mid render
+	queueMicrotask(() =>
+		(Stores.MessageStore as unknown as { emitChange?(): void }).emitChange?.(),
+	)
+}
 const dirty = new Set<string>()
 let flushTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -135,23 +176,20 @@ function flush() {
 			toArray(): {
 				id: string
 				content?: string
-				flags?: number
 				author?: { id?: string }
 			}[]
 		}
 	}>
 	const mention = new RegExp(`<@!?(?:${[...ids].join('|')})>`)
 
-	for (const { id, content, flags, author } of MessageStore.getMessages(
+	const shown: string[] = []
+	for (const { id, content, author } of MessageStore.getMessages(
 		channelId,
 	).toArray()) {
 		const byUser = !!author?.id && ids.has(author.id)
-		if (!byUser && !(content && mention.test(content))) continue
-		Dispatcher.dispatch({
-			type: 'MESSAGE_UPDATE',
-			message: { id, channel_id: channelId, flags: (flags ?? 0) ^ RedrawFlag },
-		})
+		if (byUser || (content && mention.test(content))) shown.push(id)
 	}
+	if (shown.length) redrawMessages(channelId, shown)
 }
 
 // One profile at a time with a gap, so a busy channel doesn't hammer Discord
@@ -254,6 +292,7 @@ export default plugin<{ jsonStorage: Settings }>({
 		active = true
 		const sync = () => {
 			settings = { ...DefaultSettings, ...storage.cache }
+			setAnimate(settings.animate)
 			// Badges are rebuilt under the new settings, and shown messages redrawn
 			const ids = [...cache.keys()]
 			cache.clear()
@@ -261,6 +300,7 @@ export default plugin<{ jsonStorage: Settings }>({
 			for (const id of ids) redraw(id)
 		}
 		settings = { ...DefaultSettings, ...storage.cache }
+		setAnimate(settings.animate)
 		cleanup(storage.subscribe(sync))
 		cleanup(() => {
 			clearBadges()

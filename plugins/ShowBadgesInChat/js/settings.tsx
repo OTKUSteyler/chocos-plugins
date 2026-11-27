@@ -87,6 +87,15 @@ export default function SettingsComponent({
 							onValueChange={username => storage.set({ username })}
 						/>
 					</TableRowGroup>
+					<TableRowGroup title="Animation">
+						<TableSwitchRow
+							icon={<TableRowAssetIcon name="AwardIcon" />}
+							label="Animate badges"
+							subLabel="Play animated badges in message headers. Can slow chat down with many of them."
+							value={settings.animate}
+							onValueChange={animate => storage.set({ animate })}
+						/>
+					</TableRowGroup>
 					<TableRowGroup title="Sources">
 						<TableSwitchRow
 							icon={<TableRowAssetIcon name="AwardIcon" />}
